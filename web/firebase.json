@@ -1,0 +1,22 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "nar-web",
+          "region": "asia-northeast1"
+        }
+      },
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "nar-web",
+          "region": "asia-northeast1"
+        }
+      }
+    ]
+  }
+}

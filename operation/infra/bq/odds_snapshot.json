@@ -1,0 +1,27 @@
+[
+  {
+    "name": "race_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "horse_no",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "race_date",
+    "type": "DATE",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "odds_win",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "captured_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  }
+]

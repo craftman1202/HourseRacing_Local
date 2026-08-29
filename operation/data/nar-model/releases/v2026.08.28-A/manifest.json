@@ -1,0 +1,109 @@
+{
+  "model_id": "v2026.08.28-A",
+  "dataset_version": "68554e78284f05226f11eba84565266406777fb7120369980ea10d10d947fe99",
+  "train_period": {
+    "start": "1998-01-01",
+    "end": "2026-08-26"
+  },
+  "feature_spec_hash": "739e3e43beee5c81108e7dffe12d7c07f4ab7c77d7c02626bf6274ad501fbae4",
+  "model_sha256": {
+    "clogit_beta.json": "9660fe71a29f00151f69e59cbe637a5f718be875de18188559d4b7f2628ec157",
+    "feature_spec.json": "3fc4078fd2f2c42813b4d64f9099b67d2360d4e924779b7fb51378c0ad0a2ef4",
+    "lgbm_rank.txt": "cdb801f17265e1d16e42ab612808df2b50a33a664667822ca4b8c78e2034f3dd",
+    "standardizer.json": "59ecd2e75fbef0c435390e4551e51bc2fa27259de0a07fa84b868fc9023bdbda",
+    "tabm.onnx": "b9b768df2c5ca2b2d8607a1b057f9558edaee03daae326fd9b777a3315845a75",
+    "tabm.onnx.data": "c313cd5823c51deb2d2bd6a13491cbe35538837d59e3a4e593aa37cd632bcf96"
+  },
+  "oos_metrics": {
+    "race_nll": 1.82302142206493,
+    "uniform_nll": 2.3025097355737048,
+    "brier": 0.7763864871465753,
+    "top1": 0.3529783626907273,
+    "top3": 0.5409806231621697,
+    "ndcg@3": 0.5625787793405462,
+    "spearman": 0.44498638982903127,
+    "ece": 0.003694847693040401
+  },
+  "lookback_days": 180,
+  "track": "A",
+  "calibration": {
+    "temperature": 0.8956025405167026
+  },
+  "git_commit": "",
+  "created_at": "2026-08-28T05:15:12",
+  "ensemble_weights": {
+    "clogit": 9.610304903788112e-18,
+    "lgbm": 0.8600144950960903,
+    "tabm": 0.1399855049039097
+  },
+  "feature_spec": {
+    "names": [
+      "h_top3rate_prior",
+      "h_si_last3",
+      "j_winrate_shrunk",
+      "h_winrate_prior",
+      "d_pair_winrate",
+      "d_track_winrate",
+      "d_all_starts",
+      "d_track_starts",
+      "t_winrate_shrunk",
+      "d_dist_winrate",
+      "class_level",
+      "h_starts_prior",
+      "d_best_speed",
+      "h_days_since_prev",
+      "d_dist_starts",
+      "d_pair_starts",
+      "d_extra_starts",
+      "d_best_speed_good",
+      "d_all_top3rate",
+      "d_turn_starts"
+    ],
+    "dtypes": {
+      "h_top3rate_prior": "float64",
+      "h_si_last3": "float64",
+      "j_winrate_shrunk": "float64",
+      "h_winrate_prior": "float64",
+      "d_pair_winrate": "float64",
+      "d_track_winrate": "float64",
+      "d_all_starts": "float64",
+      "d_track_starts": "float64",
+      "t_winrate_shrunk": "float64",
+      "d_dist_winrate": "float64",
+      "class_level": "float64",
+      "h_starts_prior": "float64",
+      "d_best_speed": "float64",
+      "h_days_since_prev": "float64",
+      "d_dist_starts": "float64",
+      "d_pair_starts": "float64",
+      "d_extra_starts": "float64",
+      "d_best_speed_good": "float64",
+      "d_all_top3rate": "float64",
+      "d_turn_starts": "float64"
+    },
+    "missing": {
+      "h_top3rate_prior": "nan",
+      "h_si_last3": "nan",
+      "j_winrate_shrunk": "nan",
+      "h_winrate_prior": "nan",
+      "d_pair_winrate": "nan",
+      "d_track_winrate": "nan",
+      "d_all_starts": "nan",
+      "d_track_starts": "nan",
+      "t_winrate_shrunk": "nan",
+      "d_dist_winrate": "nan",
+      "class_level": "nan",
+      "h_starts_prior": "nan",
+      "d_best_speed": "nan",
+      "h_days_since_prev": "nan",
+      "d_dist_starts": "nan",
+      "d_pair_starts": "nan",
+      "d_extra_starts": "nan",
+      "d_best_speed_good": "nan",
+      "d_all_top3rate": "nan",
+      "d_turn_starts": "nan"
+    }
+  },
+  "purpose": "production",
+  "oos_evaluated_on": "2023-08-04"
+}

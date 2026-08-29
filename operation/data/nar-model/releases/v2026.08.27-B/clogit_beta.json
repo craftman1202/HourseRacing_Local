@@ -1,0 +1,20 @@
+{
+  "beta": {
+    "h_top3rate_prior": 0.3999389218374082,
+    "h_si_last3": 0.3447773465904981,
+    "j_winrate_shrunk": 0.26275715603392064,
+    "h_winrate_prior": 0.08552515305630282,
+    "d_pair_winrate": 0.11410742867768049,
+    "d_all_starts": 0.05910966663287518,
+    "d_track_winrate": 0.06406101838469538,
+    "d_track_starts": -0.1272118032055228,
+    "d_dist_winrate": 0.10275876777274158,
+    "class_level": -1.7888533581851144e-17,
+    "h_starts_prior": -0.24321359944116863,
+    "h_days_since_prev": -0.04287453510359663,
+    "d_dist_starts": -0.09245908483340816,
+    "s_winrate_shrunk": 0.09096933283469401,
+    "d_pair_starts": -0.03685986174847031,
+    "d_turn_starts": -0.015118470602217339
+  }
+}

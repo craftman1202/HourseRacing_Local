@@ -1,0 +1,76 @@
+# 運用設定
+# 上限値はコードに埋め込まず、必ずここか環境変数で管理する（設計書 §3.3）
+
+gcp:
+  project: sample-335613
+  region: asia-northeast1        # CO-02
+  max_bytes_billed: 2000000000   # 2GB。未設定のクエリは実行させない（CO-01）
+
+  # このプロジェクトは共用。既存ワークロード（chx-*, jra-*, hourse-racing-webui,
+  # finml-*）と衝突しないよう、本システムの資源はすべて nar_ops / nar-ops- で
+  # 名前空間を切る。既存の `hourse_racing` データセットと
+  # `hourse-racing-inference-sample-335613` バケットは**別システムの資産**であり、
+  # 本システムからは読み書きしない。
+  resources:
+    bq_dataset: nar_ops
+    gcs_raw: nar-raw-sample-335613
+    gcs_model: nar-model-sample-335613
+    tasks_queue: nar-queue
+    services:
+      ops: nar-ops
+      api: nar-api
+      web: nar-web
+    scheduler_prefix: nar-
+
+inference:
+  # 発走13分前に置く根拠: オッズは締切近くほど情報量が大きい／Discord を見て
+  # 投票を入力する時間に最低5分／推論失敗時の1回リトライ分の余裕。
+  lead_minutes: 13
+  lead_tolerance_sec: 60         # IN-03
+  retry_backoff_sec: [30, 90, 270]
+  max_retries: 3
+
+update:
+  live_refresh_hours_jst: [12, 16, 20]   # DB-05/06
+  odds_snapshot_interval_min: 10          # 通常帯
+  odds_snapshot_close_interval_min: 5     # 発走15分前〜発走
+  final_merge_hour_jst: 2
+  final_merge_minute_jst: 40
+  skew_check_hour_jst: 3
+  skew_check_minute_jst: 30
+
+discord:
+  min_ev: 1.05                   # これ未満は通知しない（DC-06）
+  rate_limit_rps: 0.4            # 30 req/min に対する安全マージン
+  max_embeds_per_message: 10     # DC-03
+  max_chars_per_message: 5500    # 6000 に余裕を持たせる
+  ev_color_green: 1.20
+  ev_color_yellow: 1.05
+
+betting:
+  kelly_fraction: 0.25           # 1/4 Kelly。段階計画では 0.1 から始める
+  max_per_race: 3000
+  max_per_day: 10000
+
+skew:
+  # 日内更新に起因する差分が許容される列。これ以外の乖離は即 Blocker（SK-03）
+  tolerated_columns:
+    - j_wins_today
+    - t_wins_today
+    - track_speed_bias
+
+monitoring:
+  model_stale_days: 90           # current の学習日がこれ以上前なら鮮度アラート
+  ece_degradation: 0.02          # OOS 比でこれ以上悪化したらアラート
+  psi_threshold: 0.25
+  coverage_min: 0.90
+  rf_top1_max: 0.60              # RF-01
+  rf_nll_min: 1.20               # RF-02
+  rf_roi_max: 1.30               # RF-03
+  rf_roi_months: 3
+
+slo:
+  notify_before_minutes: 10      # SC-07
+  notify_ratio: 0.95
+  coverage_ratio: 0.98           # SC-06
+  db_fresh_by_hour_jst: 4

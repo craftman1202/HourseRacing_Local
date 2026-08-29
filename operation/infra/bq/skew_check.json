@@ -1,0 +1,32 @@
+[
+  {
+    "name": "business_date",
+    "type": "DATE",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "checked_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "n_compared",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "n_mismatch",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "mismatch_columns",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "verdict",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  }
+]

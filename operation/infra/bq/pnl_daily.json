@@ -1,0 +1,57 @@
+[
+  {
+    "name": "business_date",
+    "type": "DATE",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "n_races",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "n_bets",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "stake_yen",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "return_yen",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "roi",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "hit_rate",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "brier",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "coverage",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "is_paper",
+    "type": "BOOL",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "recomputed_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  }
+]

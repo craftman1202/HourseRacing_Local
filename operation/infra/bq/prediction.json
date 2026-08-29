@@ -1,0 +1,57 @@
+[
+  {
+    "name": "race_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "horse_no",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "race_date",
+    "type": "DATE",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "model_release",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "track_used",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "p_win",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "p_market",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "ev",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "ev_adjusted",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "computed_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "is_shadow",
+    "type": "BOOL",
+    "mode": "NULLABLE"
+  }
+]

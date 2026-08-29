@@ -1,0 +1,120 @@
+{
+  "_comment": "Terraform 定義の要約。CO-02 / RL-06 のテストがこの値を直接検査する。terraform plan の出力と同期させること。",
+  "project": "sample-335613",
+  "region": "asia-northeast1",
+  "_shared_project_note": "このプロジェクトは共用。既存の chx-* / jra-* / hourse-racing-webui / finml-* を壊さないよう、本システムは nar-ops- / nar_ops 名前空間のみを作成・変更する。",
+  "cloud_run": {
+    "nar-ops": {
+      "min_instance_count": 0,
+      "max_instance_count": 3,
+      "cpu_idle": true,
+      "region": "asia-northeast1",
+      "allow_unauthenticated": false,
+      "memory": "4Gi",
+      "cpu": "2",
+      "service_account": "nar-ops@sample-335613.iam.gserviceaccount.com",
+      "_memory_note": "1Gi では推論中に上限超過でインスタンスが落ちた（3モデル同時ロードと BigQuery の取得結果が同居する）。実測で 1041 MiB。"
+    },
+    "nar-api": {
+      "min_instance_count": 0,
+      "max_instance_count": 5,
+      "cpu_idle": true,
+      "region": "asia-northeast1",
+      "allow_unauthenticated": false,
+      "memory": "512Mi",
+      "cpu": "0.5",
+      "service_account": "nar-api@sample-335613.iam.gserviceaccount.com"
+    },
+    "nar-web": {
+      "min_instance_count": 0,
+      "max_instance_count": 5,
+      "cpu_idle": true,
+      "region": "asia-northeast1",
+      "allow_unauthenticated": false,
+      "memory": "512Mi",
+      "cpu": "1",
+      "service_account": "nar-web@sample-335613.iam.gserviceaccount.com"
+    }
+  },
+  "cloud_run_jobs": {
+    "nar-refresh": {
+      "_purpose": "日次自動更新（ingest→bronze→silver→確定層 MERGE）。2026-08-29 の障害対応で追加。`/ingest-and-refresh`（既存の Cloud Run サービス）は monthly を渡されたことが無く確定層への MERGE を一度も実行していなかった（毎回『0 rows』を ok として記録し、鮮度ゲート DB-04 が fail-closed になっていた）。この Job がその実処理を担う。詳細: operation/src/narops/refresh.py の module docstring。",
+      "image": "asia-northeast1-docker.pkg.dev/sample-335613/nar-ops/nar-ops（nar-ops と同一イメージ、command を python -m narops.refresh に上書き）",
+      "region": "asia-northeast1",
+      "memory": "16Gi",
+      "cpu": "4",
+      "task_timeout": "3600s",
+      "max_retries": 1,
+      "service_account": "nar-ops@sample-335613.iam.gserviceaccount.com",
+      "_memory_note": "4Gi・8Gi は全履歴（約490万行）の silver 再構築中に signal 9 で OOM kill された（speed_index の as-of 基準統計量計算に全履歴が要るため、直近月だけに絞れない — refresh.py の module docstring参照）。16Gi で解消。",
+      "env": {
+        "NAROPS_INGEST_STORE": "gs://nar-raw-sample-335613/ingest-store",
+        "NAROPS_BACKEND": "bigquery",
+        "NAROPS_MODE": "paper",
+        "MODEL_PROVENANCE": "real"
+      },
+      "_scheduler": "nar-refresh-daily（Cloud Scheduler, 05:00 JST 毎日, gcloud scheduler jobs create http で `.../namespaces/sample-335613/jobs/nar-refresh:run` を oauth-service-account-email=nar-ops@... で叩く。deploy.py の SCHEDULE_CRON 管理外）"
+    }
+  },
+  "service_accounts": {
+    "nar-ops@sample-335613.iam.gserviceaccount.com": [
+      "roles/storage.objectCreator",
+      "roles/bigquery.dataEditor",
+      "roles/cloudtasks.enqueuer",
+      "roles/secretmanager.secretAccessor",
+      "roles/bigquery.jobUser",
+      "roles/storage.objectViewer",
+      "roles/run.invoker",
+      "roles/cloudtasks.taskDeleter",
+      "roles/storage.objectAdmin"
+    ],
+    "nar-api@sample-335613.iam.gserviceaccount.com": [
+      "roles/bigquery.dataViewer",
+      "roles/bigquery.jobUser",
+      "roles/storage.objectViewer",
+      "roles/storage.objectCreator"
+    ],
+    "nar-web@sample-335613.iam.gserviceaccount.com": [
+      "roles/run.invoker"
+    ]
+  },
+  "scheduler_jobs": [
+    "nar-ingest-and-refresh",
+    "nar-plan-day",
+    "nar-weekly-report"
+  ],
+  "_scheduler_jobs_note": "この一覧は deploy.py の SCHEDULE_CRON/ENDPOINT（Cloud Run *サービス*への HTTP トリガー）が対象。`nar-refresh-daily` は方式が異なる（Cloud Run *Job* の :run エンドポイントを OAuth トークンで叩く）ため、この一覧には含めていない — cloud_run_jobs.nar-refresh._scheduler を参照。deploy.py 側の対応も別途要る（未対応、2026-08-29 時点）。",
+  "bigquery": {
+    "dataset": "nar_ops",
+    "require_partition_filter": true,
+    "maximum_bytes_billed": 2000000000
+  },
+  "gcs": {
+    "raw": "nar-raw-sample-335613",
+    "model": "nar-model-sample-335613"
+  },
+  "org_policies": {
+    "denied_services": [
+      "aiplatform.googleapis.com",
+      "sqladmin.googleapis.com"
+    ],
+    "_enforcement": "documented-only",
+    "_why": "aiplatform / sqladmin は既存ワークロードが有効化済みで、プロジェクト単位で禁止すると他システムが壊れる。本システムからは使わないという運用規約として扱い、実際の防御は予算アラートと deny 一覧の監視で代替する（CO-05 の逸脱として README に記載）。"
+  },
+  "budget_alerts_usd": [
+    3,
+    5
+  ],
+  "_role_note": "bigquery.dataEditor/dataViewer はデータへの権限で、クエリの実行そのものには bigquery.jobUser が別途要る。無いと Cloud Run から 403 jobs.create になる。 storage.objectCreator は書き込み専用。配布物を GCS から読む以上、objectViewer も要る（無いと起動時 403）。 Scheduler は nar-ops の OIDC トークンで Cloud Run を叩くので、nar-ops 自身にも run.invoker が要る（無いと毎回 403）。 Cloud Tasks が OIDC トークンを作るには、タスクを積む側がその SA を代理する権限（iam.serviceAccountUser）を自分自身に対して持つ必要がある。 発走時刻の変更にはタスクの作り直しが要るので、enqueuer だけでなく taskDeleter も要る。 nar-api の storage.objectViewer/objectCreator は Web 実装時に追加した逸脱（2026-08-29）: 当初「BigQuery 読み取り専用」で設計したが、/health・/performance/oos・/models が gs://nar-model/ の manifest を読む必要があり、/models/{id}/promote は current.json の切り替え（release.assert_promotion_allowed で実測ゲートを通した後の書き込み）を担う。書き込み先はこのバケットのみで、nar-raw や BigQuery への書き込み権限は付与していない。実測で 403（storage.objects.get）になったのを見て追加した。 nar-ops の storage.objectAdmin も同日追加: nar-refresh Job が gs://nar-raw-sample-335613/ingest-store 配下の manifest.duckdb を実行のたびに上書きする際、既存オブジェクトへの上書きで storage.objects.delete を要求された（objectCreator/objectViewer だけでは 403）。対象はこのバケットに限られる。",
+  "service_account_self_bindings": {
+    "nar-ops@sample-335613.iam.gserviceaccount.com": [
+      "roles/iam.serviceAccountUser"
+    ]
+  },
+  "secret_resource_bindings": {
+    "_note": "プロジェクト全体のロールではなく、Secret 個別の roles/secretmanager.secretAccessor（gcloud secrets add-iam-policy-binding）。nar-web@ はプロジェクトレベルでは run.invoker のみのまま。",
+    "AUTH_SECRET": ["nar-web@sample-335613.iam.gserviceaccount.com"],
+    "AUTH_GOOGLE_ID": ["nar-web@sample-335613.iam.gserviceaccount.com"],
+    "AUTH_GOOGLE_SECRET": ["nar-web@sample-335613.iam.gserviceaccount.com"]
+  }
+}

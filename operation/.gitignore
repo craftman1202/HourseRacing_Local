@@ -1,0 +1,13 @@
+# 秘密情報。webhook URL が入るので絶対にコミットしない
+.env
+.env.*
+!.env.example
+data/*.duckdb
+data/*.duckdb.wal
+data/*.db
+data/*.sqlite
+artifacts/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

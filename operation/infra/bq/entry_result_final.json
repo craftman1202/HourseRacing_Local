@@ -1,0 +1,132 @@
+[
+  {
+    "name": "race_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "horse_no",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "horse_sk",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "jockey_sk",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "trainer_sk",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "sire_sk",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "race_date",
+    "type": "DATE",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "start_ts",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "baba_code",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "distance",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "finish_pos",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "is_win",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "time_sec",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "speed_index",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "jockey_record",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "all_record",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "dirt_left_record",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "dirt_right_record",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "track_record",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "dist_record",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "best_time",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "best_time_good",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "turn",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "baba_condition",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "source_sha256",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "merged_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  }
+]

@@ -1,0 +1,44 @@
+# 特徴量設定
+# max_lookback_days は CV の embargo を自動導出する唯一の情報源（CV-04）。
+# ここを 180 -> 365 に変えると conf/cv.yaml の embargo も 365 になる。
+
+max_lookback_days: 180
+
+track: A   # A=オッズ非使用 / B=オッズ使用
+
+# 学習の主対象期間。設計書は2010年以降を想定していたが、EDA Q1 の実測で
+# 1998年から使えることが分かったので前倒しした（artifacts/eda/eda_report.md）。
+# 年間の欠損率は行数で重み付けするとどの年も3%未満、構造変化点も検出されない。
+# 当初 2022 と出ていたのは、場ごとの欠損率の最大値で年を判定していたため
+# （2021年の水沢1場が13.3%。年全体では2.8%）。
+train_from: "1998-01-01"
+
+shrinkage:
+  # 経験ベイズ収縮 (wins + alpha * p_bar) / (starts + alpha)
+  alpha_jockey: 50.0
+  alpha_trainer: 50.0
+  alpha_sire: 30.0
+  alpha_post: 100.0
+
+windows:
+  recent_form_n: 3          # 直近3走の速度指数トレンド
+  rolling_days: 180         # ローリング勝率窓（<= max_lookback_days）
+
+# トラックA から物理的に排除する語（FE-10 のブロックリスト検査に使う）
+market_term_blocklist:
+  - odds
+  - オッズ
+  - ninki
+  - 人気
+  - support
+  - 支持率
+  - payout
+  - 払戻
+  - market
+  - implied
+
+exclude:
+  # ばんえいは別競技なので完全分離（TR-11）
+  # ばんえいは 帯広ば(3) だけではない。1998-2006 には 北見ば(1)・岩見ば(2)・旭川ば(4)
+  # が実在し、3場で 10,336 レースある。3 だけ除くと残りが平地に混ざる（TR-11）。
+  baba_codes: [1, 2, 3, 4]

@@ -1,0 +1,27 @@
+[
+  {
+    "name": "job_name",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "run_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "business_date",
+    "type": "DATE",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "status",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "detail",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  }
+]

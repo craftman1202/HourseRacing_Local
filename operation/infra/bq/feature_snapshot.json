@@ -1,0 +1,47 @@
+[
+  {
+    "name": "race_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "horse_no",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "as_of_date",
+    "type": "DATE",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "computed_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "as_of_ts",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "db_watermark",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "model_release",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "features",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "feature_spec_hash",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  }
+]

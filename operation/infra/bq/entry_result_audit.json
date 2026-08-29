@@ -1,0 +1,37 @@
+[
+  {
+    "name": "race_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "horse_no",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "changed_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "column_name",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "old_value",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "new_value",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "reason",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  }
+]

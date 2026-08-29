@@ -1,0 +1,18 @@
+# イメージに入れないもの。
+# data_real は 1GB 超あり、artifacts にはモデル成果物が入る。どちらも
+# イメージではなく GCS 経由で渡す（配布物は manifest 付きのリリースとして扱う）。
+**/data/
+**/data_real/
+**/artifacts/
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/tests/
+**/.env
+**/*.duckdb
+**/*.duckdb.wal
+docs/
+.git/
+**/node_modules/
+web/.next/
+learning/*.egg-info/

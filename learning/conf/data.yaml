@@ -1,0 +1,33 @@
+# データ取得・ストレージ設定
+# DATA_ROOT を file:// から gs:// に差し替えるだけで GCP へ移行できる（RP-06）
+
+data_root: ${env:DATA_ROOT, file://./data}
+warehouse: ${env:WAREHOUSE, ./warehouse/nar.duckdb}
+
+endpoints:
+  race: https://www.keiba.go.jp/KeibaWeb/DataDownload/RaceDataDownload
+  odds: https://www.keiba.go.jp/KeibaWeb/DataDownload/OddsDataDownload
+
+http:
+  user_agent: "nar-ml/0.1 (research; contact: integral.sekibundx@gmail.com)"
+  min_interval_sec: 3.0
+  timeout_sec: 60.0
+  retry:
+    statuses: [429, 500, 502, 503, 504]
+    max_attempts: 5          # 6回目で例外送出（IG-05）
+    base_sec: 2.0
+    factor: 2.0
+    jitter: 0.3
+  expect_content_type: application/zip
+
+encoding:
+  # 1998年前後の外字・機種依存文字で止めないためのフォールバック順（IG-09/10）
+  candidates: [cp932, utf-8-sig]
+  fallback: {codec: cp932, errors: replace}
+
+backfill:
+  race_start_ym: "1998-01"
+  odds_start_ym: "2026-03"
+  odds_splits_per_month: 3   # 10日区切り
+  finalize_after_days: 45    # 裁決変更・賞金訂正の反映猶予（IG-11/12/13）
+  daily_refresh_months: 2    # 当月＋前月のみ再取得（IG-16）

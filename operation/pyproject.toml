@@ -1,0 +1,49 @@
+[project]
+name = "nar-ops"
+version = "1.0.0"
+description = "地方競馬 予測システム 運用パイプライン"
+requires-python = ">=3.12"
+dependencies = [
+  "pandas>=2.2", "numpy>=2.0", "duckdb>=1.1", "pyarrow>=17",
+  "httpx>=0.27", "pyyaml>=6.0", "fastapi>=0.115", "pydantic>=2.9",
+  # 当日出馬表（DebaTable）の解析。1頭が5行に分かれ rowspan で列を跨ぐので、
+  # pd.read_html では列が崩れる
+  "beautifulsoup4>=4.12",
+  # pandas.read_html が使う。当日ページの一部を DataFrame として読む経路がある
+  "lxml>=5.0",
+]
+
+[project.optional-dependencies]
+gcp = ["google-cloud-bigquery",
+       # BigQuery の DATE/TIME 列を pandas に落とすのに要る。
+       # 無いと to_dataframe() が実行時に ValueError になる
+       "db-dtypes>=1.2",
+       "google-cloud-storage", "google-cloud-tasks",
+       "google-cloud-secret-manager"]
+onnx = ["onnxruntime>=1.19", "onnx>=1.16"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+
+[project.scripts]
+narops = "narops.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# costly（実 GCP）は既定で除外。実行は `-m costly` で明示的にオプトインする
+addopts = "-m 'not costly'"
+pythonpath = ["src", "../learning/src"]
+markers = [
+  "unit: 全モック・純関数（全 push、60秒以内）",
+  "component: HTTP/GCS/BQ を代替実装（全 push、5分以内）",
+  "integration: エミュレータ＋一時 BQ（PR マージ時・日次）",
+  "e2e: 実 GCP・実 Discord（リリース前・週次）",
+  "synthetic_monitor: 本番合成監視（常時）",
+  "slow: 長時間",
+  "costly: 実課金・実送信を伴う。明示的にオプトインすること",
+]

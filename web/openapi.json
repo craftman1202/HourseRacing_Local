@@ -1,0 +1,806 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "nar-api",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemHealth"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/races/today": {
+      "get": {
+        "summary": "Races Today",
+        "operationId": "races_today_races_today_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TodayRace"
+                  },
+                  "type": "array",
+                  "title": "Response Races Today Races Today Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/races/{race_id}": {
+      "get": {
+        "summary": "Race",
+        "operationId": "race_races__race_id__get",
+        "parameters": [
+          {
+            "name": "race_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Race Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RacePrediction"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/performance/oos": {
+      "get": {
+        "summary": "Oos",
+        "operationId": "oos_performance_oos_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OOSMetrics"
+                  },
+                  "type": "array",
+                  "title": "Response Oos Performance Oos Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/performance/live": {
+      "get": {
+        "summary": "Live",
+        "operationId": "live_performance_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DailyPnL"
+                  },
+                  "type": "array",
+                  "title": "Response Live Performance Live Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/races/{race_id}/betslip": {
+      "get": {
+        "summary": "Betslip Text",
+        "description": "WB-08 相当: 楽天競馬/SPAT4 形式のコピー用テキストを返す。\n\n金額・馬番は `race` callable が返す確定済みの推奨（stake_yen）から作る。\nフォーマットは discord.betslip の単一実装をそのまま呼び、TS 側では\n再実装しない（設計書 §5.1 の要件）。",
+        "operationId": "betslip_text_races__race_id__betslip_get",
+        "parameters": [
+          {
+            "name": "race_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Race Id"
+            }
+          },
+          {
+            "name": "site",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "rakuten",
+                "spat4"
+              ],
+              "type": "string",
+              "default": "rakuten",
+              "title": "Site"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Betslip Text Races  Race Id  Betslip Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models": {
+      "get": {
+        "summary": "Models",
+        "operationId": "models_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModelRelease"
+                  },
+                  "type": "array",
+                  "title": "Response Models Models Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models/{release_id}/promote": {
+      "post": {
+        "summary": "Promote Model",
+        "description": "WB-06: 昇格は admin のみ・二段確認必須。判定は release.py の既存ゲートを使う。",
+        "operationId": "promote_model_models__release_id__promote_post",
+        "parameters": [
+          {
+            "name": "release_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Release Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Promote Model Models  Release Id  Promote Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "DailyPnL": {
+        "properties": {
+          "business_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Business Date"
+          },
+          "n_races": {
+            "type": "integer",
+            "title": "N Races"
+          },
+          "n_bets": {
+            "type": "integer",
+            "title": "N Bets"
+          },
+          "stake_yen": {
+            "type": "integer",
+            "title": "Stake Yen"
+          },
+          "return_yen": {
+            "type": "integer",
+            "title": "Return Yen"
+          },
+          "roi": {
+            "type": "number",
+            "title": "Roi"
+          },
+          "hit_rate": {
+            "type": "number",
+            "title": "Hit Rate"
+          },
+          "is_paper": {
+            "type": "boolean",
+            "title": "Is Paper"
+          }
+        },
+        "type": "object",
+        "required": [
+          "business_date",
+          "n_races",
+          "n_bets",
+          "stake_yen",
+          "return_yen",
+          "roi",
+          "hit_rate",
+          "is_paper"
+        ],
+        "title": "DailyPnL"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HorsePrediction": {
+        "properties": {
+          "horse_no": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Horse No"
+          },
+          "horse_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Horse Name"
+          },
+          "p_win": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "P Win"
+          },
+          "p_market": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Market"
+          },
+          "ev": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev"
+          },
+          "ev_adjusted": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ev Adjusted"
+          },
+          "stake_yen": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Stake Yen"
+          }
+        },
+        "type": "object",
+        "required": [
+          "horse_no",
+          "p_win",
+          "stake_yen"
+        ],
+        "title": "HorsePrediction"
+      },
+      "ModelRelease": {
+        "properties": {
+          "release_id": {
+            "type": "string",
+            "title": "Release Id"
+          },
+          "is_current": {
+            "type": "boolean",
+            "title": "Is Current"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "dataset_version": {
+            "type": "string",
+            "title": "Dataset Version"
+          },
+          "train_period_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Train Period Start"
+          },
+          "train_period_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Train Period End"
+          },
+          "git_commit": {
+            "type": "string",
+            "title": "Git Commit"
+          },
+          "track": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B"
+            ],
+            "title": "Track"
+          },
+          "purpose": {
+            "type": "string",
+            "title": "Purpose"
+          },
+          "oos_metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Oos Metrics"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "release_id",
+          "is_current",
+          "model_id",
+          "dataset_version",
+          "train_period_start",
+          "train_period_end",
+          "git_commit",
+          "track",
+          "purpose",
+          "oos_metrics",
+          "created_at"
+        ],
+        "title": "ModelRelease",
+        "description": "`/models` 画面向け。gs://nar-model/releases/<id>/manifest.json を要約する。"
+      },
+      "OOSMetrics": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "track": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B"
+            ],
+            "title": "Track"
+          },
+          "race_nll": {
+            "type": "number",
+            "title": "Race Nll"
+          },
+          "top1": {
+            "type": "number",
+            "title": "Top1"
+          },
+          "top3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top3"
+          },
+          "brier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brier"
+          },
+          "ece": {
+            "type": "number",
+            "title": "Ece"
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Evaluated At"
+          },
+          "source": {
+            "type": "string",
+            "const": "stored",
+            "title": "Source",
+            "default": "stored"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "track",
+          "race_nll",
+          "top1",
+          "ece",
+          "evaluated_at"
+        ],
+        "title": "OOSMetrics",
+        "description": "保存済み評価テーブル由来。オンザフライ再計算はしない（WB-03）。"
+      },
+      "PromoteRequest": {
+        "properties": {
+          "confirmed": {
+            "type": "boolean",
+            "title": "Confirmed",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "PromoteRequest"
+      },
+      "RacePrediction": {
+        "properties": {
+          "race_id": {
+            "type": "string",
+            "pattern": "^\\d{12}$",
+            "title": "Race Id"
+          },
+          "race_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Race Date"
+          },
+          "start_ts": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start Ts"
+          },
+          "track_name": {
+            "type": "string",
+            "title": "Track Name"
+          },
+          "race_no": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Race No"
+          },
+          "model_release": {
+            "type": "string",
+            "title": "Model Release"
+          },
+          "track_used": {
+            "type": "string",
+            "enum": [
+              "A",
+              "A+B"
+            ],
+            "title": "Track Used"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "insufficient_data",
+              "expired",
+              "not_computed"
+            ],
+            "title": "Status"
+          },
+          "horses": {
+            "items": {
+              "$ref": "#/components/schemas/HorsePrediction"
+            },
+            "type": "array",
+            "title": "Horses"
+          },
+          "is_paper": {
+            "type": "boolean",
+            "title": "Is Paper",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "race_id",
+          "race_date",
+          "start_ts",
+          "track_name",
+          "race_no",
+          "model_release",
+          "track_used",
+          "status"
+        ],
+        "title": "RacePrediction"
+      },
+      "SystemHealth": {
+        "properties": {
+          "db_watermark": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Db Watermark"
+          },
+          "model_release": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Release"
+          },
+          "model_trained_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Trained On"
+          },
+          "skew_verdict": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNKNOWN"
+            ],
+            "title": "Skew Verdict"
+          },
+          "coverage_today": {
+            "type": "number",
+            "title": "Coverage Today"
+          },
+          "delivery_blocked": {
+            "type": "boolean",
+            "title": "Delivery Blocked"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "db_watermark",
+          "model_release",
+          "model_trained_on",
+          "skew_verdict",
+          "coverage_today",
+          "delivery_blocked"
+        ],
+        "title": "SystemHealth"
+      },
+      "TodayRace": {
+        "properties": {
+          "race_id": {
+            "type": "string",
+            "pattern": "^\\d{12}$",
+            "title": "Race Id"
+          },
+          "race_no": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Race No"
+          },
+          "track_name": {
+            "type": "string",
+            "title": "Track Name"
+          },
+          "start_ts": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start Ts"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "insufficient_data",
+              "expired",
+              "not_computed"
+            ],
+            "title": "Status"
+          },
+          "top_ev_adjusted": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Ev Adjusted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "race_id",
+          "race_no",
+          "track_name",
+          "start_ts",
+          "status"
+        ],
+        "title": "TodayRace",
+        "description": "ダッシュボード `/` の本日開催タイムライン向け（設計書 §5.2(1)）。"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
