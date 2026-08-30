@@ -41,7 +41,7 @@ from .nar_source import NarFetchError, NarSource
 from .pipeline import (
     InferenceOutcome, day_budget_remaining, write_bet_candidates, write_prediction,
 )
-from .scheduling import INFER, coverage, plan_day, reconcile
+from .scheduling import BANEI_BABA_CODES, INFER, coverage, plan_day, reconcile
 from .tasks import TaskQueue
 
 log = logging.getLogger(__name__)
@@ -57,6 +57,26 @@ class IdentityStandardizer:
 
     def apply(self, frame, features):  # noqa: D401
         return frame
+
+
+@dataclass
+class ModelBundle:
+    """1つの競技を推論するのに必要な配布物一式。
+
+    平地とばんえいは列集合も標準化統計量も別なので、片方の standardizer を
+    もう片方の特徴量に当てると、モデルは「見たことのない尺度の入力」を受け取る。
+    取り違えが起きないよう、モデル・manifest・標準化器・特徴量設定を1つの束に
+    してから、レースごとに束ごと選ぶ。
+    """
+
+    manifest: Any = None
+    models: dict[str, Any] = field(default_factory=dict)
+    standardizer: Any = field(default_factory=lambda: IdentityStandardizer())
+    feature_config: Any = None
+    pool_model: PoolSizeModel = field(default_factory=PoolSizeModel)
+
+    def is_loaded(self) -> bool:
+        return self.manifest is not None and bool(self.models)
 
 
 @dataclass
@@ -80,6 +100,31 @@ class Services:
     manifest: Any = None
     pool_model: PoolSizeModel = field(default_factory=PoolSizeModel)
     feature_config: Any = None
+
+    # ばんえい用の配布物。未設定なら「ばんえいの推論はしない」を意味する。
+    # 平地のモデルで代替はしない — 距離も回りも無い競技に、距離と回りの
+    # 特徴量で学習したモデルを当てることになる。
+    banei: ModelBundle | None = None
+    banei_registry: Any = None
+
+    def bundle_for(self, baba_code: int) -> ModelBundle:
+        """この場を担当する配布物。
+
+        ばんえい（1-4）にばんえいの束が無ければ例外。黙って平地の束に
+        フォールバックすると、検証していない組み合わせで賭け金が決まる。
+        """
+        if int(baba_code) in BANEI_BABA_CODES:
+            if self.banei is None or not self.banei.is_loaded():
+                raise InsufficientData(
+                    f"競馬場コード {baba_code} はばんえいですが、ばんえい用モデルが"
+                    "読み込まれていません（current_banei.json 未設定）。"
+                    "平地モデルでは推論しません。")
+            return self.banei
+        return ModelBundle(self.manifest, self.models, self.standardizer,
+                           self.feature_config, self.pool_model)
+
+    def supports_banei(self) -> bool:
+        return self.banei is not None and self.banei.is_loaded()
 
     def __post_init__(self) -> None:
         if self.budget is None:
@@ -114,13 +159,32 @@ def plan_day_endpoint(svc: Services, day: date | None = None) -> dict:
         return {"status": "aborted", "reason": str(exc)[:200], "races": 0}
 
     _upsert_schedule(svc.wh, schedule, svc.clock)
-    actions = plan_day(schedule, svc.queue, svc.clock, svc.cfg)
+    actions = plan_day(schedule, svc.queue, svc.clock, svc.cfg,
+                       banei_enabled=svc.supports_banei())
+    # ここまでで本体（schedule の永続化・タスクの積み込み）は完了している。
+    # 以下はレスポンスに載せる件数の読み戻しでしかない。Cloud Tasks の
+    # list には enqueue とは別の IAM 権限（cloudtasks.viewer 相当）が要り、
+    # それが無い環境では PermissionDenied で 500 になっていた
+    # （実運用で 2026-08-29 に発生。タスク自体は正しく積めていたのに、
+    # 読み戻しだけの失敗でスケジューラからは「失敗」に見えていた）。
+    # 積み込みが成功した事実を読み戻しの失敗で覆さない。
+    infer_tasks = _safe_task_count(svc.queue, INFER)
     record_run(svc.wh, "plan_day", svc.clock, "ok", f"{len(schedule)} races")
     return {
         "status": "ok", "business_date": str(day), "races": len(schedule),
-        "infer_tasks": svc.queue.count(INFER), "actions": len(actions),
+        "infer_tasks": infer_tasks, "actions": len(actions),
         "mode": svc.state.mode.value,
     }
+
+
+def _safe_task_count(queue: TaskQueue, endpoint: str) -> int | None:
+    """タスク数の読み戻し。失敗しても呼び出し側の成功を巻き込まない。"""
+    try:
+        return queue.count(endpoint)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("タスク件数の読み戻しに失敗しました（%s）。積み込み自体は完了しています。",
+                   redact(str(exc))[:200])
+        return None
 
 
 def _upsert_schedule(wh: Warehouse, schedule: pd.DataFrame, clock: Clock) -> None:
@@ -341,6 +405,12 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
     except RaceExpired as exc:
         return InferenceOutcome.failed(race_id, str(exc), status="expired")
 
+    # 競技に対応する配布物をここで決める。以降はこの束だけを使う。
+    try:
+        bundle = svc.bundle_for(int(row["baba_code"]))
+    except InsufficientData as exc:
+        return InferenceOutcome.failed(race_id, str(exc), status="insufficient_data")
+
     try:
         freshness.require_fresh(svc.wh, svc.clock)
     except StaleDataError as exc:
@@ -378,9 +448,9 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
             row[key] = card[key].iloc[0]
 
     try:
-        feats = build_for_race(svc.wh, card, row, svc.manifest, svc.feature_config,
+        feats = build_for_race(svc.wh, card, row, bundle.manifest, bundle.feature_config,
                                max_bytes_billed=svc.cfg.max_bytes_billed)
-        save_snapshot(svc.wh, feats, race_id, svc.manifest.model_id, svc.clock)
+        save_snapshot(svc.wh, feats, race_id, bundle.manifest.model_id, svc.clock)
 
         odds = None
         if not odds_df.empty:
@@ -390,13 +460,13 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
 
         # 補完・標準化は配布物に固めた統計量で行う。ここを飛ばすと、学習が
         # 標準化済みの特徴量で決めた係数・分割点に、生の値を渡すことになる。
-        scored = svc.standardizer.apply(feats.frame, list(feats.spec.names))
+        scored = bundle.standardizer.apply(feats.frame, list(feats.spec.names))
         res = run_inference(
-            race_id=race_id, features=scored, models=svc.models,
-            manifests=[svc.manifest] * max(len(svc.models), 1),
-            weights=svc.manifest.ensemble_weights,
-            temperature=svc.manifest.calibration.get("temperature", 1.0),
-            clock=svc.clock, cfg=svc.cfg, odds=odds, pool_model=svc.pool_model,
+            race_id=race_id, features=scored, models=bundle.models,
+            manifests=[bundle.manifest] * max(len(bundle.models), 1),
+            weights=bundle.manifest.ensemble_weights,
+            temperature=bundle.manifest.calibration.get("temperature", 1.0),
+            clock=svc.clock, cfg=svc.cfg, odds=odds, pool_model=bundle.pool_model,
             baba_code=int(row["baba_code"]),
             class_level=int(row.get("class_level", 1)),
             day_budget_remaining=day_budget_remaining(
@@ -406,7 +476,7 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
         svc.alert("inference_error", f"{race_id}: {exc}", "Critical")
         return InferenceOutcome.failed(race_id, str(exc), status="insufficient_data")
 
-    write_prediction(svc.wh, race_id, res.frame, svc.manifest.model_id,
+    write_prediction(svc.wh, race_id, res.frame, bundle.manifest.model_id,
                      res.track_used, day, svc.clock,
                      is_shadow=(svc.state.mode is Mode.SHADOW))
 
@@ -415,24 +485,28 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
         return InferenceOutcome(race_id, "ok", res.frame, pd.DataFrame(),
                                 f"{svc.state.describe()}: 候補・配信なし")
 
-    write_bet_candidates(svc.wh, race_id, res.frame, svc.manifest.model_id, day, svc.clock)
+    write_bet_candidates(svc.wh, race_id, res.frame, bundle.manifest.model_id, day, svc.clock)
     candidates = res.bet_candidates(svc.cfg.discord_min_ev)
 
     if svc.state.can_deliver() and svc.sender is not None:
-        _deliver(svc, race_id, row, res, day)
+        _deliver(svc, race_id, row, res, day, bundle)
 
     return InferenceOutcome(race_id, "ok", res.frame, candidates)
 
 
-def _deliver(svc: Services, race_id: str, row: pd.Series, res, day: date) -> None:
-    key = dedupe_key(race_id, svc.manifest.model_id)
+def _deliver(svc: Services, race_id: str, row: pd.Series, res, day: date,
+             bundle: "ModelBundle | None" = None) -> None:
+    # 配信にもレースを担当した束の model_id を使う。svc.manifest 固定だと、
+    # ばんえいの通知が平地のリリース ID で出て、重複排除キーも競合する。
+    manifest = (bundle or svc.bundle_for(int(row["baba_code"]))).manifest
+    key = dedupe_key(race_id, manifest.model_id)
     if already_sent(svc.wh, race_id, "prediction", key):
         return                                    # DC-07
     embed = race_embed(
         race_id=race_id, track_name=str(row.get("track_name", "")),
         race_no=int(row["race_no"]), class_name=str(row.get("class_name", "")),
         distance=int(row.get("distance", 0)), start_ts=to_utc(row["start_ts"]),
-        now=svc.clock.now(), model_release=svc.manifest.model_id,
+        now=svc.clock.now(), model_release=manifest.model_id,
         track_used=res.track_used, candidates=res.frame,
         day_budget_remaining=day_budget_remaining(svc.wh, day, svc.cfg.max_bet_per_day),
         min_ev=svc.cfg.discord_min_ev)
@@ -470,10 +544,16 @@ def weekly_report_endpoint(svc: Services, day: date | None = None) -> dict:
     mcfg = MonitorConfig(model_stale_days=svc.cfg.model_stale_days)
     alerts = []
 
-    if svc.manifest is not None:
-        trained = date.fromisoformat(svc.manifest.train_period["end"])
+    # 鮮度は系統ごとに見る。ばんえいのモデルだけ古くなっていても、平地の
+    # manifest しか見ていないと誰も気づかない。
+    for label, mf in (("flat", svc.manifest),
+                      ("banei", svc.banei.manifest if svc.banei else None)):
+        if mf is None:
+            continue
+        trained = date.fromisoformat(mf.train_period["end"])
         a = check_model_freshness(trained, day, mcfg)
         if a:
+            a.message = f"[{label}] {a.message}"
             alerts.append(a)
 
     since = day - timedelta(days=30)
@@ -489,9 +569,19 @@ def weekly_report_endpoint(svc: Services, day: date | None = None) -> dict:
     if a:
         alerts.append(a)
 
-    perf = _recent_performance(svc.wh, since)
-    alerts += check_rf_guards(top1_30d=perf.get("top1"), nll_30d=perf.get("nll"),
-                              cfg=mcfg)
+    # RF ガードは競技ごとに回す。ばんえいと平地を1つに混ぜると、片方が
+    # 病的な数値でももう片方に薄められて発火しない。ガードは「良すぎる結果を
+    # 信じて資金を投じる」ことを止めるためのもので、薄めた時点で用をなさない。
+    perf_by_family = _recent_performance_by_family(svc.wh, since)
+    # 返却値の top1 / nll は従来どおり合算（週次レポートの見出し数値）。
+    perf = perf_by_family.get("all", {})
+    for label, p in perf_by_family.items():
+        if label == "all":
+            continue          # 合算はガードに掛けない（競技ごとに見るのが目的）
+        for a in check_rf_guards(top1_30d=p.get("top1"), nll_30d=p.get("nll"),
+                                 cfg=mcfg):
+            a.message = f"[{label}] {a.message}"
+            alerts.append(a)
 
     for a in alerts:
         svc.alert(a.kind, a.message, a.severity)
@@ -505,9 +595,19 @@ def weekly_report_endpoint(svc: Services, day: date | None = None) -> dict:
 
 
 def _recent_performance(wh: Warehouse, since: date) -> dict:
-    """本番実測。結果が未確定なら空を返す（RF ガードは評価しない）。"""
+    """本番実測（全競技を合算）。結果が未確定なら空を返す。"""
+    return _recent_performance_by_family(wh, since).get("all", {})
+
+
+def _recent_performance_by_family(wh: Warehouse, since: date) -> dict[str, dict]:
+    """競技ごとの直近実測。`all` に合算も入れる。
+
+    頭数分布が違う（ばんえいはほぼ 10 頭固定、平地は 5-16 頭）ので、
+    Top-1 も NLL も水準が違う。合算した1つの数字で閾値を当てると、
+    どちらの異常も検出できない。
+    """
     df = wh.query(
-        "SELECT p.race_id, p.horse_no, p.p_win, e.is_win "
+        "SELECT p.race_id, p.horse_no, p.p_win, e.is_win, e.baba_code "
         "FROM prediction p JOIN entry_result_final e "
         "  ON p.race_id = e.race_id AND p.horse_no = e.horse_no "
         "WHERE p.race_date >= ? AND e.race_date >= ?", [since, since],
@@ -516,10 +616,23 @@ def _recent_performance(wh: Warehouse, since: date) -> dict:
         return {}
     from .shared import race_nll
 
-    top1 = float(df.loc[df.groupby("race_id")["p_win"].idxmax(), "is_win"].mean())
-    return {"top1": top1,
-            "nll": float(race_nll(df["p_win"].to_numpy(), df["is_win"].to_numpy(),
-                                  df["race_id"].to_numpy()))}
+    def summarize(part: pd.DataFrame) -> dict:
+        if part.empty:
+            return {}
+        top1 = float(part.loc[part.groupby("race_id")["p_win"].idxmax(),
+                              "is_win"].mean())
+        return {"top1": top1,
+                "nll": float(race_nll(part["p_win"].to_numpy(),
+                                      part["is_win"].to_numpy(),
+                                      part["race_id"].to_numpy()))}
+
+    is_banei = df["baba_code"].astype("Int64").isin(BANEI_BABA_CODES).fillna(False)
+    out = {"all": summarize(df)}
+    for label, part in (("flat", df[~is_banei]), ("banei", df[is_banei])):
+        stats = summarize(part)
+        if stats:
+            out[label] = stats
+    return out
 
 
 # ------------------------------------------------------------------ /health
@@ -530,6 +643,8 @@ def health_endpoint(svc: Services) -> dict:
         "db_watermark": str(f.watermark) if f.watermark else None,
         "latest_final_date": str(f.latest_final_date) if f.latest_final_date else None,
         "model_release": getattr(svc.manifest, "model_id", None),
+        "banei_model_release": (getattr(svc.banei.manifest, "model_id", None)
+                                if svc.banei else None),
         "mode": svc.state.mode.value,
         "provenance": svc.state.provenance.value,
         "delivery_blocked": svc.state.delivery_blocked,

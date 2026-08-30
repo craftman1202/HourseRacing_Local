@@ -206,9 +206,10 @@ def _economics(out: pd.DataFrame, cfg: OpsConfig, pool_model: PoolSizeModel | No
                day_budget_remaining: int | None) -> pd.DataFrame:
     """期待値・自己インパクト補正・Kelly。すべて学習側の実装を共有する。"""
     if out["odds_win"].isna().all():
-        for c in ("ev", "ev_adjusted", "kelly", "stake_yen", "pool_yen"):
-            out[c] = np.nan if c != "stake_yen" else 0
+        for c in ("ev", "ev_adjusted", "kelly", "stake_yen", "pool_yen", "stake_hint_yen"):
+            out[c] = np.nan if c not in ("stake_yen", "stake_hint_yen") else 0
         out["stake_yen"] = 0
+        out["stake_hint_yen"] = 0
         return out
 
     o = out["odds_win"].to_numpy(dtype=float)
@@ -222,8 +223,14 @@ def _economics(out: pd.DataFrame, cfg: OpsConfig, pool_model: PoolSizeModel | No
     # 1/4 Kelly を暫定額として、その額での自己インパクト補正後オッズで再評価する。
     # 補正前の期待値で賭け額を決めてから補正すると、常に過大な額になる。
     provisional = np.clip(kelly_fraction(p, o, cap=cfg.kelly_fraction), 0, None)
-    stake = np.minimum(provisional * cfg.max_bet_per_race, cfg.max_bet_per_race)
-    stake = np.where(stake < 100, 0.0, np.floor(stake / 100) * 100)
+    # 100円単位に丸める前の生の Kelly 額。単勝の最低賭け金は100円なので、
+    # これを下回る額は実際には賭けられない。だからといって0円と同じ扱いで
+    # 通知から消すと、「なぜ EV が良いのに推奨が空欄なのか」が読めない。
+    # 賭けられない理由（単位未満）と賭ける理由が無い（EV不足）を区別できるよう、
+    # 丸め前の額を stake_hint_yen として別に残す（DC-05 と同じ「表示は必ず
+    # 計算値と丸め規則込みで一致させる」を、実額と参考額の2列に分けて満たす）。
+    raw_stake = np.minimum(provisional * cfg.max_bet_per_race, cfg.max_bet_per_race)
+    stake = np.where(raw_stake < 100, 0.0, np.floor(raw_stake / 100) * 100)
 
     o_eff = np.array([
         effective_odds(oi, bi, pool, takeout) if bi > 0 else oi
@@ -233,7 +240,9 @@ def _economics(out: pd.DataFrame, cfg: OpsConfig, pool_model: PoolSizeModel | No
     out["ev_adjusted"] = p * o_eff
 
     # 補正後に期待値が閾値を割った買い目は落とす
-    stake = np.where(out["ev_adjusted"].to_numpy() >= cfg.discord_min_ev, stake, 0.0)
+    passes = out["ev_adjusted"].to_numpy() >= cfg.discord_min_ev
+    stake = np.where(passes, stake, 0.0)
+    raw_stake = np.where(passes, raw_stake, 0.0)
     out["kelly"] = provisional
 
     if day_budget_remaining is not None:
@@ -242,6 +251,10 @@ def _economics(out: pd.DataFrame, cfg: OpsConfig, pool_model: PoolSizeModel | No
     if total > cfg.max_bet_per_race * len(stake):
         stake = _fit_budget(stake, cfg.max_bet_per_race * len(stake))
     out["stake_yen"] = stake.astype(int)
+    # 参考額は「EV は基準を満たすが、Kelly 額が最低賭け金（100円）に届かない」
+    # ときだけ実額と別の値になる。budget 按分の対象外（実額ではないので
+    # 予算を消費しない）。
+    out["stake_hint_yen"] = np.floor(raw_stake).astype(int)
     return out
 
 

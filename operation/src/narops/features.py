@@ -229,10 +229,60 @@ def build_for_race(
     # 契約は manifest が宣言した列。宣言が無い古いリリースは従来どおり全列で組む。
     declared = getattr(manifest.feature_spec, "names", None) if getattr(
         manifest, "feature_spec", None) else None
+    assert_serving_inputs(out, feature_config, declared)
     spec = feature_spec_of(out, declared)
     verify_feature_spec(spec, manifest)
     return FeatureResult(out.sort_values("horse_no").reset_index(drop=True), spec,
                          as_of_ts, watermark(wh), len(out))
+
+
+def assert_serving_inputs(frame: pd.DataFrame, feature_config,
+                          declared: tuple[str, ...] | list[str] | None = None) -> None:
+    """埋めてはいけない列が欠測のまま来ていないか（IN-09 と同じ考え方）。
+
+    標準化器は欠測を学習時の中央値で埋める。平地ではそれで良いが、ばんえいの
+    重量は競技のハンデそのもので、埋めた時点で事実と違う前提の予測になる。
+    `b_weight_rel` はレース内の相対量なので、一部の馬だけ埋まると馬同士の
+    優劣が直接歪む。
+
+    実測（2026-08-30）: 開催日の早朝の出馬表には馬体重が1頭も載らない。
+    発走13分前には載る。つまり「普段は取れるが取れない時もある」列で、
+    黙って埋めると静かに劣化した予測が配信まで流れる。止めるほうを選ぶ。
+
+    要求するのは**このモデルが実際に使う列**だけ（manifest の宣言と突き合わせる）。
+    使っていない列の欠測で推論を止める理由は無い。
+    """
+    if getattr(feature_config, "variant", "flat") != "banei":
+        return
+    from nar.features.banei import REQUIRED_AT_SERVING, SERVING_RANGES
+
+    used = set(declared) if declared else set(frame.columns)
+    for col in REQUIRED_AT_SERVING:
+        if col not in used or col not in frame.columns:
+            continue
+        values = pd.to_numeric(frame[col], errors="coerce")
+        n_missing = int(values.isna().sum())
+        if n_missing:
+            raise InsufficientData(
+                f"{col} が {n_missing}/{len(frame)} 頭で欠測しています。"
+                "ばんえいの重量は競技のハンデそのもので、中央値で埋めると"
+                "事実と違う前提の予測になります（出馬表への掲載待ちの可能性）。"
+                "この状態では推論しません。")
+
+    # 欠測ではなく「値はあるが明らかにおかしい」を捕まえる。当日ページの
+    # 解析ミスは欠測ではなく異常値として出ることがあり（4桁の馬体重が
+    # 下3桁だけ読まれるなど）、そちらのほうが静かで危ない。
+    for col, (lo, hi) in SERVING_RANGES.items():
+        if col not in used or col not in frame.columns:
+            continue
+        values = pd.to_numeric(frame[col], errors="coerce")
+        bad = values.notna() & ((values < lo) | (values > hi))
+        if bad.any():
+            raise InsufficientData(
+                f"{col} に妥当域 [{lo:g}, {hi:g}] を外れる値が "
+                f"{int(bad.sum())}/{len(frame)} 頭あります"
+                f"（例: {sorted(values[bad].tolist())[:3]}）。"
+                "当日ページの解析結果を疑ってください。この状態では推論しません。")
 
 
 def feature_spec_of(frame: pd.DataFrame,

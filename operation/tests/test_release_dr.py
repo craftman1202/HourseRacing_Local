@@ -154,7 +154,12 @@ def test_rl06_service_accounts_have_exactly_the_designed_roles():
             # manifest.duckdb を実行のたびに上書きする。既存オブジェクトへの
             # 上書きは storage.objects.delete を要求し、objectCreator だけでは
             # 403 になった（実測）。
-            "roles/storage.objectAdmin"},
+            "roles/storage.objectAdmin",
+            # 2026-08-30 追加: /plan-day はレスポンスに積み込み済みタスク数を
+            # 載せるため Cloud Tasks を list する。enqueuer/taskDeleter は
+            # list を含まず、無いと list が PermissionDenied になり、
+            # タスクの積み込み自体は成功しているのに 500 を返していた（実測）。
+            "roles/cloudtasks.viewer"},
         "nar-api@sample-335613.iam.gserviceaccount.com": {
             "roles/bigquery.dataViewer", "roles/bigquery.jobUser",
             # 2026-08-29 追加: /health・/performance/oos・/models が gs://nar-model/

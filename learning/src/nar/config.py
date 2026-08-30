@@ -12,7 +12,13 @@ from typing import Any
 
 import yaml
 
-CONF_DIR = Path(__file__).resolve().parents[2] / "conf"
+# 既定は learning/conf。ばんえい用の学習は conf を丸ごと差し替えて走らせる
+# （NAR_CONF_DIR=conf_banei）。平地側の conf を一切触らずに別モデルを立てる
+# ための唯一の切り替え点。
+_DEFAULT_CONF_DIR = Path(__file__).resolve().parents[2] / "conf"
+CONF_DIR = Path(os.environ.get("NAR_CONF_DIR") or _DEFAULT_CONF_DIR)
+if not CONF_DIR.is_absolute():
+    CONF_DIR = _DEFAULT_CONF_DIR.parent / CONF_DIR
 
 _ENV_RE = re.compile(r"\$\{env:([A-Z_][A-Z0-9_]*)(?:,\s*([^}]*))?\}")
 
@@ -52,6 +58,12 @@ class CVConfig:
     embargo_days: int
 
 
+# 競技の別。ばんえいは平地と同じ「NAR のレース」だが、距離が 200m 固定、
+# 回りが無く、勝敗を決めるのは重量（そり）である。特徴量の意味が別なので、
+# 同じビルダーの上で特徴量集合だけを切り替える（TR-11 の「別モデルを立てる」）。
+VARIANTS = ("flat", "banei")
+
+
 @dataclass(frozen=True)
 class FeatureConfig:
     max_lookback_days: int
@@ -61,6 +73,9 @@ class FeatureConfig:
     windows: dict[str, int]
     market_term_blocklist: list[str]
     exclude_baba_codes: list[int] = field(default_factory=list)
+    # 空なら「除外リスト以外の全部」。ばんえい側はここで 1-4 だけを取る。
+    include_baba_codes: list[int] = field(default_factory=list)
+    variant: str = "flat"
 
 
 def _d(v: str) -> date:
@@ -77,6 +92,15 @@ def feature_config(conf_dir: str | None = None) -> FeatureConfig:
             f"{raw['max_lookback_days']} を超えています。embargo が実際の"
             "ルックバックより短くなりリークします。"
         )
+    variant = raw.get("variant", "flat")
+    if variant not in VARIANTS:
+        raise ValueError(f"variant={variant!r} は未知です。{VARIANTS} のいずれか。")
+    both = set(raw.get("include", {}).get("baba_codes", [])) & set(
+        raw.get("exclude", {}).get("baba_codes", []))
+    if both:
+        raise ValueError(
+            f"include と exclude に同じ競馬場コードがあります: {sorted(both)}。"
+            "どちらが効くかが読めない設定は受け付けません。")
     return FeatureConfig(
         max_lookback_days=int(raw["max_lookback_days"]),
         track=raw["track"],
@@ -85,6 +109,8 @@ def feature_config(conf_dir: str | None = None) -> FeatureConfig:
         windows=windows,
         market_term_blocklist=raw["market_term_blocklist"],
         exclude_baba_codes=raw.get("exclude", {}).get("baba_codes", []),
+        include_baba_codes=raw.get("include", {}).get("baba_codes", []),
+        variant=variant,
     )
 
 

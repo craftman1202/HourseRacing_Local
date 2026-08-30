@@ -67,17 +67,28 @@ def test_sc02_cancelled_races_are_skipped(schedule, queue, clock, cfg):
     assert queue.count(INFER) == len(schedule) - 1
 
 
-def test_sc02_banei_races_are_never_scheduled_for_inference(schedule, queue, clock, cfg):
-    """ばんえい（帯広、baba_code 1-4）は確定層に一切入らない（TR-11）ので、
-    推論を積んでも毎回 InsufficientData で失敗し、Critical アラートが
-    空振りで鳴り続けるだけになる（実際に発生した — 2026-08-29、race_id
-    032026082906）。積む前に除外する。
+def test_sc02_banei_is_not_scheduled_without_a_banei_model(schedule, queue, clock, cfg):
+    """ばんえい専用モデルが無い構成では、ばんえいの推論は積まない。
+
+    平地モデルで代替すると、距離も回りも無い競技に距離と回りの特徴量で
+    学習したモデルを当てることになる。かつては専用モデルが存在せず、
+    それでも積んでいたため毎回 InsufficientData で失敗し、Critical アラートが
+    空振りで鳴り続けていた（2026-08-29、race_id=032026082906）。
     """
     schedule.loc[0, "baba_code"] = 3
-    plan_day(schedule, queue, clock, cfg)
+    plan_day(schedule, queue, clock, cfg, banei_enabled=False)
     assert queue.count(INFER) == len(schedule) - 1
     assert queue.tasks.get(infer_task_name(schedule.loc[0, "race_id"],
                                            schedule.loc[0, "start_ts"])) is None
+
+
+def test_sc02_banei_is_scheduled_once_a_banei_model_is_loaded(schedule, queue, clock, cfg):
+    """ばんえい専用モデルがあるときは、ばんえいも平地と同じように積む。"""
+    schedule.loc[0, "baba_code"] = 3
+    plan_day(schedule, queue, clock, cfg, banei_enabled=True)
+    assert queue.count(INFER) == len(schedule)
+    assert queue.tasks.get(infer_task_name(schedule.loc[0, "race_id"],
+                                           schedule.loc[0, "start_ts"])) is not None
 
 
 # ------------------------------------------------------------------ SC-03

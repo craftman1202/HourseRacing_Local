@@ -152,7 +152,7 @@ def cmd_upload_release(args) -> int:
               "`narops promote`。")
         return 0
 
-    reg = GcsModelRegistry(bucket=bucket, project=project)
+    reg = GcsModelRegistry(bucket=bucket, project=project, family=args.family)
     existing = reg.current_id()
     if existing is not None and existing != args.release_id:
         print(f"GCS 側の current は既に {existing} です。入れ替えは "
@@ -175,7 +175,7 @@ def cmd_bootstrap_current(args) -> int:
     """
     from .model.registry import ModelRegistry
 
-    reg = ModelRegistry(args.model_root)
+    reg = ModelRegistry(args.model_root, family=args.family)
     existing = reg.current_id()
     if existing is not None:
         used = _predictions_by(args, existing)
@@ -206,10 +206,9 @@ def cmd_publish_release(args) -> int:
     """
     import json
 
-    from nar.config import feature_config
-
     from .model.registry import ModelRegistry
     from .publish import build_release
+    from .shared import feature_config_for
 
     final = Path(args.final_dir)
     art = Path(args.artifacts)
@@ -291,7 +290,7 @@ def cmd_publish_release(args) -> int:
         ensemble_weights=weights,
         # 特徴量の最長ルックバックは学習側の設定が唯一の情報源。運用側で
         # 別に持つと MP-04 が「manifest のほうが短い」で起動を止める。
-        lookback_days=int(feature_config().max_lookback_days),
+        lookback_days=int(feature_config_for(args.family).max_lookback_days),
         temperature=temperature,
         test_results=gate["results"],
         track=args.track,
@@ -312,7 +311,7 @@ def cmd_publish_release(args) -> int:
         print("--stage 指定のため登録はしません。")
         return 0
 
-    reg = ModelRegistry(args.model_root)
+    reg = ModelRegistry(args.model_root, family=args.family)
     reg.publish(args.release_id, result.path)
     print(f"レジストリに登録しました: {args.release_id}")
     print("current への切り替えは `narops promote` で行ってください（二段確認）。")
@@ -336,7 +335,7 @@ def cmd_health(args) -> int:
         print(f"DB 鮮度      : {'OK' if fresh.is_fresh else 'STALE'}  {fresh.describe()}")
 
         if args.model_root:
-            reg = ModelRegistry(args.model_root)
+            reg = ModelRegistry(args.model_root, family=args.family)
             rid = reg.current_id()
             print(f"current      : {rid}")
             if rid:
@@ -354,7 +353,7 @@ def cmd_health(args) -> int:
 
 def cmd_verify_release(args) -> int:
     """配布物の完全性と feature_spec を検証する（MP-02/03）。"""
-    reg = ModelRegistry(args.model_root)
+    reg = ModelRegistry(args.model_root, family=args.family)
     rid = args.release or reg.current_id()
     if not rid:
         print("current ポインタが未設定です", file=sys.stderr)
@@ -370,7 +369,7 @@ def cmd_verify_release(args) -> int:
 def cmd_promote(args) -> int:
     from .release import ShadowMetrics, promote
 
-    reg = ModelRegistry(args.model_root)
+    reg = ModelRegistry(args.model_root, family=args.family)
     shadow = ShadowMetrics(args.shadow_days, args.shadow_nll, args.shadow_ece, 0.0)
     prod = ShadowMetrics(30, args.production_nll, args.production_ece, 0.0)
     promote(reg, args.release, shadow, prod, actor=args.actor, confirmed=args.confirm)
@@ -379,7 +378,7 @@ def cmd_promote(args) -> int:
 
 
 def cmd_rollback(args) -> int:
-    reg = ModelRegistry(args.model_root)
+    reg = ModelRegistry(args.model_root, family=args.family)
     previous = reg.rollback(actor=args.actor)
     print(f"current を {previous} へ戻しました")
     return 0
@@ -479,6 +478,10 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser("narops", description="地方競馬 予測システム 運用CLI")
     p.add_argument("--db", default="./data/nar_ops.duckdb")
     p.add_argument("--model-root", default="./data/nar-model")
+    # 競技ごとに current ポインタを分ける。releases/ は共有で、
+    # flat → current.json / banei → current_banei.json を読み書きする。
+    p.add_argument("--family", default="flat", choices=("flat", "banei"),
+                   help="モデル系統（既定 flat = 平地）")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init", help="DWH を初期化").set_defaults(func=cmd_init)

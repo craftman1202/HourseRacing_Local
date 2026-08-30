@@ -66,7 +66,8 @@
       "roles/storage.objectViewer",
       "roles/run.invoker",
       "roles/cloudtasks.taskDeleter",
-      "roles/storage.objectAdmin"
+      "roles/storage.objectAdmin",
+      "roles/cloudtasks.viewer"
     ],
     "nar-api@sample-335613.iam.gserviceaccount.com": [
       "roles/bigquery.dataViewer",

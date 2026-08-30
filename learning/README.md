@@ -34,6 +34,27 @@ $P -m nar.cli --data-root $D report                    # → artifacts/model_per
 短い期間のモデルで、本番には出さない。`fit-final` は OOS 開始日から embargo を
 引いた日までの全データで学習し、較正温度は学習に使っていない末尾90日で測る。
 
+### ばんえい（別 variant）
+
+ばんえいは 200m 直線・そりの重量で決まる別競技なので、平地の設定を一切触らずに
+`conf_banei/` を丸ごと差し替えて学習する。切り替えは `NAR_CONF_DIR` の1点だけ。
+
+```bash
+NAR_CONF_DIR=conf_banei $P -m nar.cli --data-root $D features
+NAR_CONF_DIR=conf_banei $P -m nar.cli --data-root $D --artifacts artifacts/banei learn
+NAR_CONF_DIR=conf_banei $P -m nar.cli --data-root $D --artifacts artifacts/banei \
+    fit-final --out ./artifacts/final_banei
+```
+
+gold の書き出し先は `gold/features_noodds_banei/` で、平地の gold を上書きしない。
+特徴量集合は `asof_features(cfg)` が variant から決める（平地側は1列も変わらない —
+`tests/test_banei.py` が固定している）。落とす列と足す列の根拠は
+`src/nar/features/banei.py` の docstring にある。
+
+対象は 帯広ば(3) だけでなく 北見ば(1)・岩見ば(2)・旭川ば(4) も含む（1998-2006 に
+実在、競技として同一）。平地は `conf/features.yaml` の `exclude` で従来どおり
+1-4 を落とす。
+
 合成データで一通り通したいときは `nar synth` → 同じ流れ（`DATA_ROOT` を `./data` に）。
 
 `nar train` / `nar evaluate` は条件付きロジット単体の軽量版で、`nar learn` が全モデル版。

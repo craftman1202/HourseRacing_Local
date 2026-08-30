@@ -64,6 +64,23 @@ def fmt_yen(x) -> str:
     return "—" if pd.isna(x) or x <= 0 else f"¥{int(x):,}"
 
 
+def fmt_stake(stake_yen, stake_hint_yen=None) -> str:
+    """推奨額の表示。
+
+    `stake_yen` は実際に賭ける額（100円単位、0 なら「賭けない」）。
+    EV は基準を満たすのに `stake_yen` が0のとき、理由は主に2つあり得る:
+    Kelly 額が最低賭け金（100円）に届かない、か、自己インパクト補正後に
+    EV が基準を割った。前者は `stake_hint_yen` に丸め前の額が残るので、
+    それを括弧書きの参考額として出す。EV が良いのに推奨が空欄なだけだと、
+    運用側が「なぜ」を読めない。
+    """
+    if not pd.isna(stake_yen) and stake_yen > 0:
+        return fmt_yen(stake_yen)
+    if stake_hint_yen is not None and not pd.isna(stake_hint_yen) and stake_hint_yen > 0:
+        return f"(¥{int(stake_hint_yen):,})"
+    return "—"
+
+
 def race_embed(
     *, race_id: str, track_name: str, race_no: int, class_name: str, distance: int,
     start_ts: datetime, now: datetime, model_release: str, track_used: str,
@@ -90,7 +107,7 @@ def race_embed(
         name = (names.get(no, f"{no}番") + "　" * 9)[:9]
         lines.append(
             f" {no:>3}  {name}  {fmt_pct(r['p_win']):>6} {fmt_pct(r.get('p_market', float('nan'))):>6}"
-            f" {fmt_ev(r['ev_adjusted']):>5}  {fmt_yen(r['stake_yen'])}")
+            f" {fmt_ev(r['ev_adjusted']):>5}  {fmt_stake(r['stake_yen'], r.get('stake_hint_yen'))}")
     lines.append("```")
 
     total = int(shown["stake_yen"].sum())
@@ -98,6 +115,10 @@ def race_embed(
     if day_budget_remaining is not None:
         tail.append(f"本日残枠 {fmt_yen(day_budget_remaining)}")
     lines.append("　".join(tail))
+    has_hint = ("stake_hint_yen" in shown.columns
+               and ((shown["stake_yen"] <= 0) & (shown["stake_hint_yen"] > 0)).any())
+    if has_hint:
+        lines.append("（　）は最低賭け金（¥100）に届かない参考額。実際には賭けません")
     if pool_yen:
         lines.append(f"⚠ 想定プール ¥{pool_yen / 1e6:.1f}M（推定値・実測より小さめに見積り）")
 

@@ -20,7 +20,7 @@ from ..config import CVConfig, FeatureConfig
 from ..eval import guards, metrics
 from ..eval.calibration import TemperatureScaler
 from ..eval.splits import Fold, OOSGuard, make_folds, make_oos_fold, validate_folds
-from ..features.builder import ASOF_FEATURES
+from ..features.builder import asof_features
 from ..models import baselines
 from ..models.base import to_batch
 from ..models.clogit import ConditionalLogit
@@ -366,7 +366,7 @@ def run_walkforward(
     feat: pd.DataFrame, fcfg: FeatureConfig, ccfg: CVConfig, cfg: RunConfig,
 ) -> list[FoldOutput]:
     feat = trainable(feat)
-    cols = [c for c in ASOF_FEATURES if c in feat.columns]
+    cols = [c for c in asof_features(fcfg) if c in feat.columns]
     folds = make_folds(ccfg)
     races = feat[["race_id", "race_date"]].drop_duplicates()
     usable = [f for f in folds if _has_data(f, races)]

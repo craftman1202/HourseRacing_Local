@@ -341,3 +341,60 @@ def test_redaction_leaves_ordinary_urls_alone():
     plain = "https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/DebaTable"
     assert not contains_secret(plain)
     assert redact(plain) == plain
+
+
+# --------------------------------------------------- stake_hint_yen（参考額）
+def test_dc05_shows_a_hint_when_ev_passes_but_stake_rounds_to_zero():
+    """EV は基準を満たすのに実額が0のとき、通知に理由が読めること。
+
+    以前は「推奨」欄が空欄（—）になるだけで、EV が良いのになぜ賭けないのかが
+    通知だけからは分からなかった。単位未満（stake_hint_yen>0）なのか、
+    そもそも検討対象外なのかを区別できるようにする。
+    """
+    cand = pd.DataFrame({
+        "horse_no": [5], "p_win": [0.145], "p_market": [0.041],
+        "ev": [2.82], "ev_adjusted": [2.82],
+        "stake_yen": [0], "stake_hint_yen": [74],
+    })
+    e = race_embed(race_id="R", track_name="帯広ば", race_no=1, class_name="C1",
+                   distance=200, start_ts=to_utc(START),
+                   now=to_utc(START) - timedelta(minutes=13),
+                   model_release="v-banei", track_used="A+B", candidates=cand)
+    assert e is not None
+    assert "(¥74)" in e.description
+    assert "最低賭け金" in e.description
+
+
+def test_dc05_no_hint_note_when_every_stake_is_actionable(candidates):
+    """実額がちゃんと出ている通常時は、参考額の注記を出さない（冗長な文言を足さない）。"""
+    e = race_embed(race_id="202026082511", track_name="大井", race_no=11,
+                   class_name="C1三", distance=1200, start_ts=to_utc(START),
+                   now=to_utc(START) - timedelta(minutes=12),
+                   model_release="v2026.08.24-A", track_used="B",
+                   candidates=candidates)
+    assert e is not None
+    assert "最低賭け金" not in e.description
+
+
+def test_dc05_hint_is_absent_when_ev_itself_fails():
+    """EV 基準を割った銘柄は、参考額があっても出さない（stake_hint_yen が0のはず）。"""
+    cand = pd.DataFrame({
+        "horse_no": [9], "p_win": [0.02], "p_market": [0.05],
+        "ev": [0.5], "ev_adjusted": [0.5],
+        "stake_yen": [0], "stake_hint_yen": [0],
+    })
+    e = race_embed(race_id="R", track_name="帯広ば", race_no=1, class_name="C1",
+                   distance=200, start_ts=to_utc(START),
+                   now=to_utc(START) - timedelta(minutes=13),
+                   model_release="v-banei", track_used="A", candidates=cand)
+    assert e is None, "EV 基準未満なので通知自体が出ないはず"
+
+
+def test_fmt_stake_prefers_the_actionable_amount_over_the_hint():
+    from narops.discord.format import fmt_stake
+
+    assert fmt_stake(1200, 1200) == "¥1,200"
+    assert fmt_stake(0, 74) == "(¥74)"
+    assert fmt_stake(0, 0) == "—"
+    assert fmt_stake(0, None) == "—"
+    assert fmt_stake(float("nan"), 74) == "(¥74)"

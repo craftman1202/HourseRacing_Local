@@ -20,11 +20,13 @@ from .tasks import Task, TaskQueue
 INFER = "/infer"
 SNAPSHOT = "/snapshot-odds"
 REFRESH_LIVE = "/refresh-live"
-# ばんえい競馬（帯広）は別競技で、確定層（entry_result_final）に一切入れて
-# いない（TR-11 / refresh.py::BANEI_BABA_CODES）。過去走データが無いので
-# 特徴量が作れず、推論タスクを積んでも毎回 InsufficientData で失敗し、
-# Critical アラートが空振りで鳴り続けるだけになる（実際に発生した — 2026-08-29、
-# race_id=032026082906）。この4場は最初から推論を積まない。
+# ばんえい競馬は別競技（200m 直線・そりの重量が勝敗を決める）で、平地とは
+# 別のモデルで推論する。かつては確定層に1行も入れておらず、推論タスクを積むと
+# 毎回 InsufficientData で失敗して Critical アラートが空振りしていた
+# （2026-08-29、race_id=032026082906）。
+# いまは確定層に過去走が入り（refresh.load_history）、ばんえい専用の配布物が
+# あれば推論できる。**専用モデルがあるときだけ**積む — 平地モデルで代替すると、
+# 距離も回りも無い競技に距離と回りの特徴量で学習したモデルを当てることになる。
 BANEI_BABA_CODES = (1, 2, 3, 4)
 # Cloud Scheduler ジョブは3個まで（無料枠）。SC-01 の検証対象
 SCHEDULER_JOBS = (
@@ -56,13 +58,17 @@ class Action:
 
 
 def plan_day(schedule: pd.DataFrame, queue: TaskQueue, clock: Clock,
-             cfg: OpsConfig) -> list[Action]:
-    """当日スケジュールから推論タスクとオッズ収集タスクを積む（SC-02）。"""
+             cfg: OpsConfig, banei_enabled: bool = False) -> list[Action]:
+    """当日スケジュールから推論タスクとオッズ収集タスクを積む（SC-02）。
+
+    `banei_enabled` は「ばんえい用の配布物が読み込まれているか」。既定は False で、
+    モデルを持たない環境（テスト・平地だけの構成）は従来どおりばんえいを積まない。
+    """
     actions: list[Action] = []
     for _, r in schedule.iterrows():
         if str(r.get("status", "scheduled")) != "scheduled":
             continue
-        if int(r["baba_code"]) in BANEI_BABA_CODES:
+        if int(r["baba_code"]) in BANEI_BABA_CODES and not banei_enabled:
             continue
         start = to_utc(r["start_ts"])
         fire = start - timedelta(minutes=cfg.infer_lead_minutes)

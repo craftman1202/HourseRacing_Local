@@ -46,8 +46,35 @@ __all__ = [
     "implied_takeout", "inverse_odds_sum", "shrink",
     "race_softmax", "normalize_within_race", "race_nll",
     "expected_calibration_error", "summary_metrics",
-    "learning_package_root",
+    "learning_package_root", "learning_conf_dir", "feature_config_for",
 ]
+
+
+# 系統ごとの学習設定ディレクトリ。ばんえいは特徴量集合も対象場も別なので、
+# ここを取り違えると manifest に別競技の lookback_days が載る。
+_CONF_DIRS = {
+    "flat": "conf",
+    "banei": "conf_banei",
+}
+
+
+def learning_conf_dir(family: str = "flat") -> Path:
+    """`learning/conf*` の実体パス。
+
+    `nar.config.feature_config()` を引数なしで呼ぶと、プロセス全体の
+    `NAR_CONF_DIR`（既定は平地）が効く。運用側は1プロセスで両系統を扱うので、
+    必ず系統を明示して読む。
+    """
+    if family not in _CONF_DIRS:
+        raise ValueError(f"未知のモデル系統: {family!r}（{tuple(_CONF_DIRS)} のいずれか）")
+    return _LEARNING_SRC.parent / _CONF_DIRS[family]
+
+
+def feature_config_for(family: str = "flat"):
+    """系統に対応する FeatureConfig。"""
+    from nar.config import feature_config
+
+    return feature_config(str(learning_conf_dir(family)))
 
 
 def learning_package_root() -> Path:

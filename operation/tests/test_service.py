@@ -140,6 +140,33 @@ def test_plan_day_stores_schedule_and_enqueues(svc, schedule_rows):
     assert len(stored) == 1 and stored["race_id"].iloc[0] == RACE_ID
 
 
+def test_plan_day_succeeds_even_if_the_task_count_readback_fails(svc, schedule_rows):
+    """タスク件数の読み戻し失敗が、積み込み成功そのものを 500 に変えないこと。
+
+    実運用（2026-08-29）で、Cloud Tasks の list に必要な IAM 権限
+    （enqueue とは別）が無く、スケジュール保存とタスク積み込みは成功して
+    いるのに `/plan-day` が 500 を返していた。読み戻しは本体の成否と別に
+    扱う。
+    """
+    class _BrokenCount:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def count(self, endpoint=None):
+            raise PermissionError("cloudtasks.tasks.list が許可されていません")
+
+    svc.queue = _BrokenCount(svc.queue)
+    out = plan_day_endpoint(svc, DAY)
+    assert out["status"] == "ok" and out["races"] == 1
+    assert out["infer_tasks"] is None, "読み戻し失敗時は不明として返すべき"
+    stored = svc.wh.query("SELECT * FROM race_schedule WHERE race_date = ?", [DAY],
+                          allow_full_scan=True)
+    assert len(stored) == 1, "読み戻し失敗の前に完了した積み込みは残っているはず"
+
+
 def test_plan_day_is_once_per_day(svc):
     assert plan_day_endpoint(svc, DAY)["status"] == "ok"
     assert plan_day_endpoint(svc, DAY)["status"] == "noop"

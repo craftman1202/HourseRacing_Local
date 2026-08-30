@@ -310,3 +310,60 @@ def test_day_budget_is_respected(features, models, manifests, at_window, cfg, od
                         temperature=1.0, clock=at_window, cfg=cfg, odds=odds,
                         day_budget_remaining=500)
     assert res.frame["stake_yen"].sum() <= 500
+
+
+# --------------------------------------------------------- stake_hint_yen
+def test_stake_hint_reflects_the_raw_kelly_amount_when_it_rounds_to_zero(
+        features, models, manifests, at_window, cfg, odds):
+    """Kelly 額が最低賭け金（100円）に届かない銘柄でも、丸め前の額が読めること。
+
+    EV が基準を満たすのに `stake_yen` が0のとき、通知が空欄のままだと
+    「なぜ推奨が無いのか」が運用側から読めない。単位未満で賭けないのと、
+    EV 不足でそもそも賭ける理由が無いのを区別できるようにする。
+    """
+    # 賭け額を必ず最低単位未満に抑える設定（cap を極端に小さくする）
+    cfg.kelly_fraction = 0.01
+    res = run_inference(race_id="R", features=features, models=models,
+                        manifests=manifests, weights={"lgbm": 0.5, "tabm": 0.5},
+                        temperature=1.0, clock=at_window, cfg=cfg, odds=odds)
+    passing = res.frame[res.frame["ev_adjusted"] >= cfg.discord_min_ev]
+    assert len(passing), "この設定なら EV 基準を満たす行が残るはず（テスト前提）"
+    assert (passing["stake_yen"] == 0).all(), "cap を絞ったのに実額が出ています（前提が崩れています）"
+    assert (passing["stake_hint_yen"] > 0).all(), (
+        "EV は基準を満たすのに参考額が0です。単位未満と検知不可を区別できていません")
+
+
+def test_stake_hint_is_zero_once_ev_drops_below_threshold(
+        features, models, manifests, at_window, cfg, odds):
+    """EV 基準そのものを割った銘柄は、参考額も出さない（賭ける理由が無いため）。"""
+    res = run_inference(race_id="R", features=features, models=models,
+                        manifests=manifests, weights={"lgbm": 0.5, "tabm": 0.5},
+                        temperature=1.0, clock=at_window, cfg=cfg, odds=odds)
+    failing = res.frame[res.frame["ev_adjusted"] < cfg.discord_min_ev]
+    if len(failing):
+        assert (failing["stake_hint_yen"] == 0).all()
+
+
+def test_stake_hint_is_consistent_with_the_rounded_stake(
+        features, models, manifests, at_window, cfg, odds):
+    """実額が出るときの参考額は、その丸め前の値そのものであること。
+
+    `stake_hint_yen` は `stake_yen` を100円単位に丸める前の額なので、
+    `floor(hint/100)*100 == stake_yen` が常に成り立つ（別々の計算をしていない）。
+    """
+    res = run_inference(race_id="R", features=features, models=models,
+                        manifests=manifests, weights={"lgbm": 0.5, "tabm": 0.5},
+                        temperature=1.0, clock=at_window, cfg=cfg, odds=odds,
+                        pool_model=PoolSizeModel(default_yen=50_000_000))
+    bet = res.frame[res.frame["stake_yen"] > 0]
+    if len(bet):
+        rounded = (bet["stake_hint_yen"] // 100) * 100
+        assert (rounded == bet["stake_yen"]).all()
+        assert (bet["stake_hint_yen"] >= bet["stake_yen"]).all()
+
+
+def test_stake_hint_is_zero_without_odds(features, models, manifests, at_window, cfg):
+    res = run_inference(race_id="R", features=features, models=models,
+                        manifests=manifests, weights={"lgbm": 0.5, "tabm": 0.5},
+                        temperature=1.0, clock=at_window, cfg=cfg, odds=None)
+    assert (res.frame["stake_hint_yen"] == 0).all()

@@ -82,6 +82,81 @@ def seed_project_assumptions(log: AssumptionLog) -> AssumptionLog:
     )
     log.add(
         category="scope",
+        statement="ばんえいは平地とは別の variant（conf_banei）として独立に学習する",
+        rationale="上の除外を維持したまま、ばんえいを予測するための唯一の方法。"
+                  "同じ as-of ビルダーを共有し、特徴量集合だけを差し替える。"
+                  "ばんえいは 帯広ば(3) だけでなく 北見ば(1)/岩見ば(2)/旭川ば(4) も"
+                  "含める（1998-2006 に実在、競技として同一）。",
+        impact_if_wrong="平地モデルの列や順序が動けば、配布済みモデルが"
+                        "feature_spec 不一致で止まる。asof_features() の"
+                        "平地側が不変であることをテストで固定している。",
+        evidence="conf_banei/features.yaml / tests/test_banei.py",
+    )
+    log.add(
+        category="exclusion",
+        statement="ばんえいでは distance / d_turn_* / d_dist_* / d_best_speed* を使わない",
+        rationale="実データで情報を持たないことを確認した。距離は全レース200mで"
+                  "分散ゼロ（標準化が壊れる）、ダート左右成績は100%空欄（直線しかない）、"
+                  "最高タイムは93.9%空欄、うち当距離成績は当競馬場成績と99.999%一致。",
+        impact_if_wrong="全行NaNの列や分散ゼロの列をモデルに渡すことになる。",
+        evidence="src/nar/features/banei.py の docstring / data_real 実測",
+    )
+    log.add(
+        category="threshold",
+        statement="ばんえいの含水率が 20% を超える行は測定値とみなさず欠損にする",
+        rationale="砂は飽和しても重量比 20% 程度。実データでは 2004 年だけ 60-69 が"
+                  "766 行あり（他の年は 0-10 に収まる）、単位か記録対象が違う。"
+                  "0 で埋めると「乾いた馬場」に化けて意味が反転するので欠損にする。",
+        impact_if_wrong="影響は 466,929 行中 766 行（0.16%）。残すと標準化の尺度が"
+                        "5 割ふくらみ、線形モデルの係数が歪む。",
+        evidence="banei.MOISTURE_MAX / data_real 実測",
+    )
+    log.add(
+        category="limitation",
+        statement="ばんえいの馬体重（b_body_weight）は当日ページから取得できる前提を置く",
+        rationale="2026-08-29 の帯広の出馬表で、発走前に馬体重・増減が載っていることを"
+                  "実ページで確認した。載らない場合は欠損として通し、0 では埋めない。",
+        impact_if_wrong="発走13分前にまだ公表されていない開催があると、"
+                        "b_body_weight と b_load_ratio が推論時だけ欠損になる。",
+        evidence="TodayRaceInfo/DebaTable（k_babaCode=3）の実取得",
+    )
+    log.add(
+        category="method",
+        statement="ばんえいの負担重量・馬体重が欠測している出馬表では推論しない",
+        rationale="標準化器は欠測を学習時の中央値で埋める。ばんえいの重量は競技の"
+                  "ハンデそのもので、埋めた時点で事実と違う前提の予測になる。"
+                  "b_weight_rel はレース内の相対量なので、一部の馬だけ埋まると"
+                  "馬同士の優劣が直接歪む。実測（2026-08-30）で、開催日の早朝の"
+                  "出馬表には馬体重が1頭も載らず、負担重量も10頭中8頭しか"
+                  "埋まっていなかった（発走13分前のページには全頭ぶん載る）。",
+        impact_if_wrong="掲載が遅い開催で推論が飛ぶ。カバレッジ（SC-06）の低下として"
+                        "観測されるので、黙って劣化した予測を配るより検知しやすい。",
+        evidence="narops.features.assert_serving_inputs / banei.REQUIRED_AT_SERVING",
+    )
+    log.add(
+        category="method",
+        statement="ばんえいの重量系特徴量は妥当域を外れたら推論を止める",
+        rationale="当日ページの解析ミスは欠測ではなく異常値として出る。実測"
+                  "（2026-08-30）で、馬体重の正規表現が3桁固定だったため 1022kg が"
+                  "22kg と読まれていた。2024年以降のばんえい出走馬の 46.3% が"
+                  "1000kg 以上なので、毎レース半数近くが壊れていた。平地は"
+                  "1000kg 以上が1頭も存在しないため永久に露見しない種類の不具合。",
+        impact_if_wrong="「22kg の馬が 610kg を曳く」予測が自信を持って出る。"
+                        "該当馬の p_win がほぼ 0 になり、賭け金が系統的に偏る。",
+        evidence="banei.SERVING_RANGES / deba_table._WEIGHT_RE",
+    )
+    log.add(
+        category="limitation",
+        statement="ばんえいの重量系特徴量は確定層からは再計算できない",
+        rationale="運用の確定層（entry_result_final）は負担重量・馬体重・性別・年齢の"
+                  "列を持たない（平地モデルが使わないため）。b_* はすべて行ごとに"
+                  "閉じた値なので、推論では出馬表から取れており対象レースの値は変わらない。",
+        impact_if_wrong="過去のばんえいレースを確定層だけから再計算すると b_* が NaN に"
+                        "なる。推論時の値は feature_snapshot に JSON で全列残る（SK-06）。",
+        evidence="db/schema.py の entry_result_final DDL",
+    )
+    log.add(
+        category="scope",
         statement="学習の主対象を2010年以降とし、それ以前は種牡馬事前分布の推定にのみ使う",
         rationale="2000年代前半は馬体重・血統の欠損が多いと予想されるため。"
                   "実測はEDA第一問（coverage_map / usable_from_year）で置き換える。",

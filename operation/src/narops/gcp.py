@@ -19,7 +19,7 @@ from typing import Any
 import pandas as pd
 
 from .db.backend import QueryStats, assert_partition_filter
-from .errors import BytesBilledUnbounded
+from .errors import ArtifactIntegrityError, BytesBilledUnbounded
 
 # 本システムが触ってよい資源の接頭辞。ここを外れる操作は事故とみなす
 OWNED_DATASET = "nar_ops"
@@ -208,10 +208,19 @@ class GcsModelRegistry:
 
     bucket: str
     project: str
+    # 競技ごとの current ポインタ。ローカル版 ModelRegistry と同じ規約
+    # （flat=current.json / banei=current_banei.json）。
+    family: str = "flat"
     _client: Any = None
 
     def __post_init__(self) -> None:
         assert_owned(self.bucket)
+
+    @property
+    def current_file(self) -> str:
+        from .model.registry import current_pointer
+
+        return current_pointer(self.family)
 
     @property
     def client(self):
@@ -236,7 +245,7 @@ class GcsModelRegistry:
     def current_id(self) -> str | None:
         import json
 
-        blob = self._bucket().blob("current.json")
+        blob = self._bucket().blob(self.current_file)
         if not blob.exists():
             return None
         return json.loads(blob.download_as_text()).get("release_id")
@@ -248,7 +257,18 @@ class GcsModelRegistry:
 
         if release_id not in self.releases():
             raise FileNotFoundError(f"{release_id} が releases 配下にありません")
-        self._bucket().blob("current.json").upload_from_string(
+        # ローカル版 ModelRegistry.set_current と同じ検査を必ず入れる。
+        # 片側だけ緩いと「ローカルのテストは緑、本番だけ取り違えを受け付ける」
+        # という一番悪い形になる（releases/ は系統をまたいで共有）。
+        from .model.registry import family_of
+
+        actual = family_of(self.load_manifest(release_id))
+        if actual and actual != self.family:
+            raise ArtifactIntegrityError(
+                f"{release_id} は {actual} のモデルです。{self.family} の current"
+                "には置けません。系統を取り違えると、別競技のレースを別競技の"
+                "モデルで採点します。")
+        self._bucket().blob(self.current_file).upload_from_string(
             json.dumps({"release_id": release_id,
                         "switched_at": datetime.now().isoformat(timespec="seconds")}),
             content_type="application/json")
@@ -256,6 +276,7 @@ class GcsModelRegistry:
         prev = audit.download_as_text() if audit.exists() else ""
         audit.upload_from_string(prev + json.dumps({
             "at": datetime.now().isoformat(timespec="seconds"),
+            "family": self.family,
             "actor": actor, "to": release_id, "reason": reason}, ensure_ascii=False) + "\n")
 
     def download_release(self, release_id: str, dest: str) -> str:

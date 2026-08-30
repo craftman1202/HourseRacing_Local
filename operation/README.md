@@ -53,6 +53,100 @@ python -m narops.cli upload-release --release-id v2026.08.28-A --set-current
 python -m narops.cli health
 ```
 
+## ばんえい競馬（別モデル系統）
+
+ばんえいは 200m 直線・そりの重量で決まる別競技なので、平地とは**別のモデル**で
+推論する（TR-11 の「必要なら別モデルを立てる」側）。共有するのは as-of 特徴量
+ビルダーと運用パイプラインで、違うのは3つだけ:
+
+| | 平地 | ばんえい |
+|---|---|---|
+| 学習設定 | `learning/conf/` | `learning/conf_banei/`（`NAR_CONF_DIR` で切替） |
+| 対象場 | 1,2,3,4 を除外 | 1,2,3,4 **のみ**（帯広ば/北見ば/岩見ば/旭川ば） |
+| current | `current.json` | `current_banei.json`（`--family banei`） |
+
+特徴量は距離・回り・自己ベストタイム由来の列を落とし、重量まわりを足す
+（根拠は `learning/src/nar/features/banei.py` の docstring）。`releases/` は
+共有で、リリース ID を `-banei` で分ける。
+
+```bash
+# 1. ばんえいの gold を作る（平地の gold は上書きされない）
+cd learning
+NAR_CONF_DIR=conf_banei python -m nar.cli --data-root file://$PWD/data_real features
+
+# 2. walk-forward 学習 → 出荷用モデル
+NAR_CONF_DIR=conf_banei python -m nar.cli --data-root file://$PWD/data_real \
+    --artifacts artifacts/banei learn
+NAR_CONF_DIR=conf_banei python -m nar.cli --data-root file://$PWD/data_real \
+    --artifacts artifacts/banei fit-final --out ./artifacts/final_banei
+
+# 3. リリース化して current_banei に置く
+cd ../operation
+python -m narops.cli --family banei publish-release \
+    --release-id v2026.08.29-A-banei \
+    --final-dir ../learning/artifacts/final_banei \
+    --artifacts ../learning/artifacts/banei
+python -m narops.cli --family banei bootstrap-current \
+    v2026.08.29-A-banei --actor <name> --confirm
+```
+
+`current_banei.json` が無い間は、ばんえいの推論タスクは**積まれない**
+（`scheduling.plan_day(banei_enabled=False)`）。仮に積まれても
+`Services.bundle_for()` が明示的に断る — 平地モデルへのフォールバックはしない。
+距離も回りも無い競技に距離と回りの特徴量で学習したモデルを当てることになるため。
+
+### 当日ページのパーサはばんえいの桁数・記号を前提にしていなかった
+
+2026-08-30 に2件見つけて直した。どちらも**月次ファイル（学習）には正しい値が
+あり、当日ページ（推論）でだけ壊れる**形で、平地では露見しない。
+
+| 列 | 症状 | 影響 |
+|---|---|---|
+| `weight_carried` | `re.match` が先頭からしか見ず、`☆ 580`（減量騎手）を丸ごと落とす | 実測で1レース 9-10 頭中 1-2 頭。`b_weight_rel` はレース内の相対量なので**同じレースの全馬**が歪む |
+| `weight_kg` | `(\d{3})` が3桁固定で、`1022(+4)` を `022` と読む | **2024年以降のばんえい出走馬の 46.3% が 1000kg 以上**。平地は 1000kg 以上が1頭も無いので永久に露見しない |
+
+後者は欠測ではなく**異常値**なので欠測チェックでは止まらない。実レースで
+「22kg の馬が 610kg を曳く」予測が出て、該当3頭の p_win がほぼ 0 になっていた
+（修正後は 14.5% / 10.6% / 2.3%）。`banei.SERVING_RANGES` の妥当域検査を
+`assert_serving_inputs` に足して、同種の解析ミスを推論前に止める。
+
+### 出馬表への掲載待ちでは推論しない
+
+ばんえいの負担重量・馬体重は**開催が進むにつれて出馬表に埋まる**。実測
+（2026-08-30 早朝）では、開催日の早朝のページに馬体重が1頭も載らず、
+負担重量も 10 頭中 8 頭だけだった。発走13分前（開催中）のページには全頭ぶん載る。
+
+標準化器は欠測を学習時の中央値で埋めるので、そのまま通すと「全馬が平均的な
+重量を曳く」という事実と違う前提の予測が、paper モードのベット額まで流れる。
+`b_weight_rel` はレース内の相対量なので、一部の馬だけ埋まると馬同士の優劣が
+直接歪む。そこで `narops.features.assert_serving_inputs` が
+`banei.REQUIRED_AT_SERVING`（負担重量・馬体重）の欠測を検出して
+`InsufficientData` で止める（IN-09 と同じ考え方）。
+
+止まった場合はカバレッジ低下として観測される。黙って劣化した予測を配るより
+検知しやすいほうを選んでいる。要求するのは**そのモデルが実際に使う列**だけで、
+manifest の宣言と突き合わせる。
+
+### 確定層が重量を持たないこと（既知の制限）
+
+`entry_result_final` は 負担重量・馬体重・性別・年齢の列を持たない（平地モデルが
+使わないため）。ばんえい特徴量の `b_*` はすべて**その行だけで決まる**値なので、
+推論では対象レースの出馬表から取れており、実レースで全 10 頭・欠損ゼロを確認済み。
+履歴側が NaN でも対象レースの値は変わらない。
+
+影響があるのは1点だけ: **過去のばんえいレースを確定層だけから再計算する**と
+`b_*` が NaN になる。`narops skew-check` の既定経路（snapshot の自己比較）は
+影響を受けないが、`--recomputed` に確定層由来のフレームを渡す使い方はできない。
+推論時に何を見ていたかは `feature_snapshot` に JSON で全列残る（SK-06）ので、
+監査自体はそちらで足りる。
+
+ばんえいの過去走は確定層（`entry_result_final`）に入る。以前はここで全件落として
+おり、推論は毎回 `InsufficientData` で失敗していた（2026-08-29、
+race_id=032026082906）。平地の特徴量に混ざる経路は2つとも塞がっている:
+`conf/features.yaml` の `exclude` と、`speed_index` の (場×距離) 標準化。
+
+---
+
 **`fit-final` は評価用と出荷用で2回走らせる**。`--through` を付けない既定は
 OOS 境界の手前で打ち切った評価用で、これを OOS で測る。測り終えたら
 `--through` に最新データ日を渡して全データで作り直したものを配る。
@@ -69,25 +163,67 @@ OOS 境界の手前で打ち切った評価用で、これを OOS で測る。�
 BQ スキーマは `infra/bq/*.json` にあり、**`db/schema.py` の DDL から生成**しているので
 ローカルと本番が乖離しない。
 
-### 稼働中（2026-08-28）
+### 稼働中（2026-08-30）
 
 | 種別 | 名前 | 状態 |
 |---|---|---|
-| Artifact Registry | `nar-ops` | `nar-ops:v2026.08.28e` |
-| Cloud Run | `nar-ops` / `nar-api` / `nar-web` | min-instances=0、shadow 固定 |
+| Artifact Registry | `nar-ops` | `nar-ops:v2026.08.30-banei2` |
+| Cloud Run | `nar-ops` | `NAROPS_MODE=paper`、平地＋ばんえいの両モデルを読み込み済み |
+| Cloud Run | `nar-api` / `nar-web` | 別イメージ（`nar-api/nar-api:v2026.08.29-web1` / `nar-web/nar-web:v2026.08.29-web2`）。今回は触っていない |
 | Cloud Scheduler | 3ジョブ | 02:40 取込 / 08:00 当日計画 / 月曜04:00 週次 |
-| GCS モデル | `v2026.08.28-A` | current 設定済み |
+| GCS モデル current | `v2026.08.28-A`（平地）/ `v2026.08.30-A-banei`（ばんえい） | いずれも `paper` 配信対象 |
+| IAM | `nar-ops@` に `roles/cloudtasks.viewer` 追加 | `/plan-day` の件数読み戻しに必要（下記） |
 
-`/health` `/plan-day` `/ingest-and-refresh` `/weekly-report` は実 BigQuery
-に対して 200 を返すことを確認済み。
+`/health` は `model_release` と `banei_model_release` の両方を返す
+（`GET /health` で確認可能）。`/plan-day` `/ingest-and-refresh` `/weekly-report`
+は実 BigQuery に対して 200 を返すことを確認済み。
+
+**2026-08-30 に見つけた運用中の不具合**: `/plan-day` はレスポンスに積み込み
+済みタスク数を含めるため Cloud Tasks を `list` するが、`nar-ops@` の役割
+（`cloudtasks.enqueuer` / `taskDeleter`）は `list` を含まない。積み込み自体
+（schedule の保存・タスク作成）は成功していたのに、この読み戻しだけが
+`PermissionDenied` で落ち、エンドポイント全体が 500 を返していた（実測、
+2026-08-29 23:01 UTC の日次実行）。`roles/cloudtasks.viewer` を追加し、
+かつ `plan_day_endpoint` 側でも読み戻し失敗が本体の成否を巻き込まないよう
+修正した（`Services.service.py::_safe_task_count`）。
 
 ```bash
 # ビルドとデプロイ（コンテキストはリポジトリのルート）
 IMG=asia-northeast1-docker.pkg.dev/sample-335613/nar-ops/nar-ops:vYYYY.MM.DD
 docker build -f operation/Dockerfile -t $IMG . && docker push $IMG
-python -m narops.cli deploy --image $IMG \
-    --service-url https://nar-ops-bwl3vrgzdq-an.a.run.app --apply --confirm
 ```
+
+**`narops deploy --image $IMG --apply --confirm` はこの `$IMG` を nar-ops・nar-api・
+nar-web の3サービス全部に配る**（`deploy.py` の Cloud Run ループが `image` を
+無条件に使い回す実装のため）。ところが nar-api・nar-web は別の Dockerfile
+（`operation/Dockerfile.api` / `web/Dockerfile`）由来の**別イメージ**を
+本番で実際に動かしている（実測: `nar-api/nar-api:v2026.08.29-web1` /
+`nar-web/nar-web:v2026.08.29-web2`）。この README のとおり `--apply --confirm`
+すると、api と web が nar-ops のイメージで（依存もエントリポイントも違う状態で）
+再デプロイされ、両方落ちる。2026-08-30 時点でこの3サービス構成に対する
+per-service イメージ指定は未実装。
+
+**nar-ops だけを更新したいとき**（バンえいモデルの追加など）は `narops deploy`
+を使わず、現在の設定をそのまま引き継いで `gcloud run deploy nar-ops` を直接叩く:
+
+```bash
+gcloud run deploy nar-ops \
+  --project sample-335613 --region asia-northeast1 \
+  --image $IMG \
+  --service-account nar-ops@sample-335613.iam.gserviceaccount.com \
+  --min-instances 0 --max-instances 3 --memory 4Gi --cpu 2 \
+  --no-allow-unauthenticated --cpu-throttling --quiet \
+  --set-env-vars NAROPS_PROJECT=sample-335613,NAROPS_DATASET=nar_ops,\
+NAROPS_MODEL_BUCKET=nar-model-sample-335613,NAROPS_RAW_BUCKET=nar-raw-sample-335613,\
+NAROPS_ROLE=ops,NAROPS_SERVICE_URL=https://nar-ops-bwl3vrgzdq-an.a.run.app,\
+MODEL_PROVENANCE=real,NAROPS_MODE=paper
+```
+
+`--set-env-vars` は既存の環境変数を丸ごと置き換える。値は
+`gcloud run services describe nar-ops --format=json` で現在の設定を確認してから
+書き写すこと（`NAROPS_MODE` を書き忘れると `narops.cli deploy` の既定値
+`shadow` 相当に巻き戻る経路は無いが、この直接コマンドでは渡し忘れが
+そのまま反映される）。
 
 ### 実 GCP でしか出なかった落とし穴
 

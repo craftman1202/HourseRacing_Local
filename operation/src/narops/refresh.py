@@ -41,7 +41,6 @@ from .db.freshness import check as check_freshness
 from .db.merge import MergeResult, merge_final
 from .db.schema import RECORD_COLUMN_MAP
 from .jobs import record_run
-from .scheduling import BANEI_BABA_CODES
 
 log = logging.getLogger("narops.refresh")
 
@@ -185,7 +184,16 @@ def load_history(wh: Any, entry: pd.DataFrame, race: pd.DataFrame, *,
     from nar.features.builder import speed_index
 
     clock = clock or SystemClock()
-    entry = entry[~entry["baba_code"].isin(BANEI_BABA_CODES)].copy()
+    # ばんえいもここに入れる。以前は投入前に落としていたが、それだと確定層に
+    # 過去走が1行も無く、ばんえいの推論は必ず InsufficientData で失敗していた
+    # （2026-08-29、race_id=032026082906）。
+    #
+    # 平地の特徴量に混ざる心配は無い。混入の経路は2つしかなく、どちらも塞がっている:
+    #   1. 特徴量ビルダーは conf/features.yaml の exclude で 1-4 を必ず落とす
+    #   2. speed_index は (baba_code, distance) ごとに標準化するので、
+    #      ばんえい（1-4 × 200m）は平地とグループを共有しない
+    # 逆にばんえい側は conf_banei/features.yaml の include で 1-4 だけを取る。
+    entry = entry.copy()
     # 着順が無い行（取消・除外の馬、中止レース、未実施の予定）も残す。
     # 学習側のウィンドウ集計は silver の全行を見ており、確定層だけ間引くと
     # 出走数がずれる。「まだ結果が来ていない」ことは finish_pos が NULL で

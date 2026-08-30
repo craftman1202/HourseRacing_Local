@@ -1,0 +1,23 @@
+# walk-forward 分割
+# embargo_days は書かない。conf/features.yaml の max_lookback_days から自動導出する（CV-04）。
+
+mode: expanding        # expanding（主）/ rolling（副）
+# EDA Q1 の結論に合わせて 1998 から。expanding なので各 fold の学習量が増える。
+train_start: "1998-01-01"
+
+folds:
+  - {valid_start: "2019-02-01", valid_end: "2019-12-31"}
+  - {valid_start: "2020-02-01", valid_end: "2020-12-31"}
+  - {valid_start: "2021-02-01", valid_end: "2021-12-31"}
+  - {valid_start: "2022-02-01", valid_end: "2022-12-31"}
+  - {valid_start: "2023-02-01", valid_end: "2023-12-31"}
+
+oos:
+  valid_start: "2024-02-01"
+  valid_end: null        # null = 現在まで
+  locked: true           # --unlock-oos なしで読むと OOSAccessError（CV-07）
+
+inner:
+  n_folds: 3             # ネストHPOの内側。外側 train 期間内に完全に収まる（CV-09）
+
+rolling_window_years: 9  # mode: rolling のときの固定窓長

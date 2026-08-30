@@ -39,7 +39,11 @@ _RECORD_LABELS = {
 # 性別表記は 牡/牝/セン（騸馬）。「セン」を1文字クラスで書くと「ン」が漏れる
 _SEX_AGE_RE = re.compile(r"([^\d\s]+)\s*(\d+)")
 _BIRTH_RE = re.compile(r"(\d{1,2})[.．](\d{1,2})\s*生")
-_WEIGHT_RE = re.compile(r"(\d{3})\s*\(([-+±]?\d+)\)")
+# 馬体重は3桁とは限らない。ばんえいは 664-1266kg で、実データの中央値は 997kg
+# ＝ 出走馬のおよそ半分が4桁になる。`\d{3}` だと 1022(+4) が「022」と読まれ、
+# 22kg の馬が 610kg を曳くことになる（実測 2026-08-29 帯広 R1 で 9 頭中 3 頭）。
+# 月次ファイル側は正しい4桁を持つので、推論側だけが壊れる形の skew だった。
+_WEIGHT_RE = re.compile(r"(\d{3,4})\s*\(([-+±]?\d+)\)")
 _ODDS_RE = re.compile(r"([\d,]+\.\d+)")
 _POP_RE = re.compile(r"\((\d+)人気\)")
 _TIME_RE = re.compile(r"^(?:良|稍重|重|不良)?\d+:\d{2}\.\d$")
@@ -79,6 +83,27 @@ def _records(result_td) -> dict:
                 key = "最高タイム良馬場" if t[0] not in "0123456789" else "最高タイム"
                 out.setdefault(key, t.strip())
     return out
+
+
+# 減量騎手の印。月次ファイルは「☆760」のように印を前置した文字列で持つので、
+# 当日ページからも同じ形（印＋数値、空白なし）に揃える。
+_ALLOWANCE_MARKS = "☆▲△◇★"
+_CARRIED_RE = re.compile(rf"([{_ALLOWANCE_MARKS}]?)\s*(\d+(?:\.\d+)?)")
+
+
+def _weight_carried(cell: str) -> str:
+    r"""`☆ 580 1-4-1-2` から `☆580` を取り出す。
+
+    以前は `re.match(r"([\d.]+)", cell)` で先頭からしか見ておらず、印が付く
+    馬（減量騎手）の負担重量を**丸ごと落としていた**。実測（2026-08-29 の
+    帯広）で 9 頭中 2 頭が該当し、月次ファイル側は `☆580` を持っているので、
+    学習と推論で入力が食い違っていた。
+
+    ばんえいでは負担重量が競技のハンデそのもので、レース内の重量差
+    （`b_weight_rel`）は落ちた馬だけでなく**同じレースの全馬**の値を歪める。
+    """
+    m = _CARRIED_RE.search(cell or "")
+    return f"{m.group(1)}{m.group(2)}" if m else ""
 
 
 def _birth_ymd(sex_age: str, birth_md: str, race_year: int) -> str:
@@ -151,8 +176,7 @@ def parse(html: str, race_id: str, race_date: pd.Timestamp | str) -> pd.DataFram
                                     race_year),
             # 2行目の4セル目は「負担重量 + 騎手成績」。この馬とこの騎手の組み合わせ
             # 成績で、月次ファイルの `騎手成績` 列と同じもの
-            "weight_carried": (re.match(r"([\d.]+)", c2[3]).group(1)
-                               if len(c2) > 3 and re.match(r"([\d.]+)", c2[3]) else ""),
+            "weight_carried": _weight_carried(c2[3] if len(c2) > 3 else ""),
             "騎手成績": (m.group(1) if len(c2) > 3
                      and (m := re.search(r"(\d+-\d+-\d+-\d+)", c2[3])) else ""),
             "sire_name": c3[0] if c3 else "",
@@ -193,7 +217,10 @@ def parse(html: str, race_id: str, race_date: pd.Timestamp | str) -> pd.DataFram
 _DISTANCE_RE = re.compile(r"(\d{3,4})\s*[ｍm]")
 _SURFACE_RE = re.compile(r"(ダート|芝)")
 _TURN_RE = re.compile(r"[（(]\s*(左|右|直線?)\s*[）)]")
-_BABA_RE = re.compile(r"馬場\s*[：:]\s*(良|稍重|重|不良)")
+# 平地は 良/稍重/重/不良。ばんえいは同じ位置に含水率が数値（%）で出る
+# （「馬場：1.8」）。数値を落とすと b_moisture が推論時だけ欠測になり、
+# 学習と推論で入力が食い違う。
+_BABA_RE = re.compile(r"馬場\s*[：:]\s*(良|稍重|重|不良|\d+(?:\.\d+)?)")
 _PRIZE_RE = re.compile(r"1着\s*([\d,]+)\s*円")
 
 

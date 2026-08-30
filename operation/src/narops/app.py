@@ -87,9 +87,12 @@ def _attach_queue(svc: Any, cfg: OpsConfig) -> None:
 
 def _attach_model(svc: Any, cfg: OpsConfig) -> None:
     """current リリースを読み、SHA-256 を検証してから載せる（MP-02）。"""
-    from nar.config import feature_config
+    from .shared import feature_config_for
 
-    svc.feature_config = feature_config()
+    # 系統を明示して読む。引数なしの feature_config() はプロセス全体の
+    # NAR_CONF_DIR を見るので、それが立っていると平地のモデルに
+    # ばんえいの設定（include=1-4）が渡り、履歴が1行も残らなくなる。
+    svc.feature_config = feature_config_for("flat")
     from .model.registry import ModelRegistry
 
     root = os.environ.get("NAROPS_MODEL_ROOT")
@@ -130,6 +133,78 @@ def _attach_model(svc: Any, cfg: OpsConfig) -> None:
 
     svc.models, svc.standardizer = load_models(release)
     log.info("モデル %s を読み込みました（%d モデル）", rid, len(svc.models))
+    _attach_banei_model(svc, root, bucket)
+
+
+def _attach_banei_model(svc: Any, root: str | None, bucket: str | None) -> None:
+    """ばんえい用の配布物を載せる（current_banei.json が指す版）。
+
+    無ければ何もしない。ばんえいのモデルが無い構成は正常で、その場合は
+    `plan_day` がばんえいの推論タスクを積まず、`bundle_for` が明示的に断る。
+    平地のモデルで代替することは絶対にしない。
+    """
+    from pathlib import Path as _Path
+
+    from .model.registry import ModelRegistry
+    from .runtime import load_models
+    from .service import ModelBundle
+    from .shared import feature_config_for
+
+    try:
+        if root:
+            reg = ModelRegistry(root, family="banei")
+            rid = reg.current_id()
+        elif bucket:
+            import tempfile
+
+            from .gcp import GcsModelRegistry
+
+            remote = GcsModelRegistry(bucket=bucket,
+                                      project=os.environ.get("NAROPS_PROJECT", ""),
+                                      family="banei")
+            rid = remote.current_id()
+            if rid is None:
+                log.info("ばんえい用の current は未設定。ばんえいの推論は行いません")
+                return
+            cache = _Path(os.environ.get("NAROPS_MODEL_CACHE", tempfile.gettempdir())
+                          ) / "nar-model"
+            (cache / "releases").mkdir(parents=True, exist_ok=True)
+            remote.download_release(rid, str(cache / "releases"))
+            reg = ModelRegistry(cache, family="banei")
+            reg.set_current(rid, actor="startup", reason="GCS から取得（ばんえい）")
+        else:
+            return
+        if rid is None:
+            log.info("ばんえい用の current は未設定。ばんえいの推論は行いません")
+            return
+
+        release = reg.load(rid, verify=True)
+        models, standardizer = load_models(release)
+        # 特徴量設定は learning/conf_banei。平地の設定を渡すと include/exclude が
+        # 逆になり、ばんえいの履歴が1行も残らない。
+        svc.banei_registry = reg
+        svc.banei = ModelBundle(
+            manifest=release.manifest, models=models, standardizer=standardizer,
+            feature_config=feature_config_for("banei"),
+            pool_model=_banei_pool_model())
+        log.info("ばんえいモデル %s を読み込みました（%d モデル）", rid, len(models))
+    except Exception as exc:  # noqa: BLE001
+        # ばんえいが載らないことで平地まで止めない。載らなければ積まないだけ。
+        log.warning("ばんえいモデルの読み込みに失敗しました（ばんえいの推論は行いません）: %s",
+                    exc)
+        svc.banei = None
+
+
+def _banei_pool_model():
+    """ばんえいのプール規模。
+
+    帯広1場・1日10R 程度で、単勝プールは平地の主要場より小さい。プールを
+    小さく見積もるほど自己インパクトが大きく出て期待値を過大評価しない側に
+    倒れるので、既定を平地より下げる（PoolSizeModel の設計と同じ考え方）。
+    """
+    from .inference import PoolSizeModel
+
+    return PoolSizeModel(default_yen=300_000.0)
 
 
 def _attach_discord(svc: Any, cfg: OpsConfig, state: OperatingState) -> None:

@@ -20,7 +20,8 @@ from . import synth
 from .config import CONF_DIR, cv_config, data_config, eda_config, feature_config
 from .eval import guards, metrics
 from .eval.splits import make_folds, make_oos_fold, validate_folds, OOSGuard
-from .features.builder import ASOF_FEATURES, build as build_features, content_hash
+from .features.builder import (
+    asof_features, build as build_features, content_hash)
 from .io.store import Store
 from .models import baselines
 from .models.base import to_batch
@@ -317,12 +318,22 @@ def cmd_eda(args: argparse.Namespace) -> int:
     return 0 if res["signoff"]["can_proceed"] else 1
 
 
+def _gold_subdir(cfg) -> str:
+    """gold の書き出し先。トラック（オッズの有無）と variant で分ける。
+
+    ばんえいと平地は別モデル・別列集合なので、同じ features.parquet に
+    書くと後から走らせた方が相手を黙って壊す。
+    """
+    sub = "features_odds" if cfg.track == "B" else "features_noodds"
+    return sub if getattr(cfg, "variant", "flat") == "flat" else f"{sub}_{cfg.variant}"
+
+
 def cmd_features(args: argparse.Namespace) -> int:
     store = Store(args.data_root)
     t = _load_silver(store)
     cfg = feature_config()
     feat = build_features(t["entry"], t["race"], cfg)
-    sub = "features_odds" if cfg.track == "B" else "features_noodds"
+    sub = _gold_subdir(cfg)
     path = Path(store.path("gold", sub, "features.parquet"))
     path.parent.mkdir(parents=True, exist_ok=True)
     feat.to_parquet(path, index=False)
@@ -348,7 +359,7 @@ def cmd_train(args: argparse.Namespace) -> int:
     races = feat[["race_id", "race_date"]].drop_duplicates()
     validate_folds([f for f in folds if _has_data(f, races)], races)
 
-    cols = [c for c in ASOF_FEATURES if c in feat.columns]
+    cols = [c for c in asof_features(fcfg) if c in feat.columns]
     rows = []
     for f in folds:
         tr, va = f.mask(feat["race_date"])
@@ -387,7 +398,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     oos = make_oos_fold(ccfg, pd.to_datetime(feat["race_date"]).max().date())
     tr, va = oos.mask(feat["race_date"])
-    cols = [c for c in ASOF_FEATURES if c in feat.columns]
+    cols = [c for c in asof_features(fcfg) if c in feat.columns]
     train, valid = _prep(feat[tr], cols), _prep(feat[va], cols)
 
     model = ConditionalLogit(l2=args.l2).fit(to_batch(train, cols))
@@ -501,7 +512,7 @@ def cmd_learn(args: argparse.Namespace) -> int:
 
     if args.oos:
         summary, preds, tw = pl.evaluate_oos(
-            feat, [c for c in ASOF_FEATURES if c in feat.columns], cfg, ccfg,
+            feat, [c for c in asof_features(fcfg) if c in feat.columns], cfg, ccfg,
             stacker, artifacts, args.reason or "最終評価")
         summary.to_csv(artifacts / "oos_metrics.csv", index=False)
         preds.to_parquet(artifacts / "oos_predictions.parquet", index=False)
@@ -633,8 +644,7 @@ def cmd_evaluate_final(args: argparse.Namespace) -> int:
 
     store = Store(args.data_root)
     fcfg, ccfg = feature_config(), cv_config()
-    sub = "features_odds" if fcfg.track == "B" else "features_noodds"
-    gold = Path(store.path("gold", sub, "features.parquet"))
+    gold = Path(store.path("gold", _gold_subdir(fcfg), "features.parquet"))
     if not gold.exists():
         print(f"{gold} がありません。", file=sys.stderr)
         return 1
@@ -720,14 +730,14 @@ def cmd_fit_final(args: argparse.Namespace) -> int:
     store = Store(args.data_root)
     fcfg = feature_config()
     ccfg = cv_config()
-    sub = "features_odds" if fcfg.track == "B" else "features_noodds"
+    sub = _gold_subdir(fcfg)
     path = Path(store.path("gold", sub, "features.parquet"))
     if not path.exists():
         print(f"{path} がありません。先に `nar features` を実行してください。",
               file=sys.stderr)
         return 1
     feat = pd.read_parquet(path)
-    cols = [c for c in ASOF_FEATURES if c in feat.columns]
+    cols = [c for c in asof_features(fcfg) if c in feat.columns]
     hash_file = path.parent / "content_hash.txt"
     gold_hash = hash_file.read_text(encoding="utf-8").strip() if hash_file.exists() else ""
     if not gold_hash:

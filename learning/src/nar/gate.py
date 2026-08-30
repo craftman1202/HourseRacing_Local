@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -28,11 +29,25 @@ def _normalize(test_id: str) -> str:
 
 def run_pytest(tests_dir: str | Path, report_path: str | Path,
                extra_args: tuple[str, ...] = ()) -> Path:
+    """Blocker テストを走らせて junit.xml を残す。
+
+    `NAR_CONF_DIR` は**必ず外す**。テストは既定の設定（平地）で書かれており、
+    ばんえいの学習から `NAR_CONF_DIR=conf_banei nar gate-report` と呼ぶと、
+    子プロセスがそれを受け継いで全テストがばんえいの設定で走る。実際に
+    16 件が落ちて LK-05/LK-06 が RED になり、publish が止まった（2026-08-30）。
+
+    ゲートが問うているのは「このコードで Blocker が通るか」であって、
+    どの variant を出荷しようとしているかではない。variant 依存の判定は
+    `--artifacts` から読む OOS ガードのほうが担っている。ばんえい側の
+    設定は `tests/test_banei.py` がパス指定で明示的に読むので、
+    環境変数を外してもばんえいの検証は落ちない。
+    """
     out = Path(report_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, "-m", "pytest", str(tests_dir), "-q", "--tb=no",
            f"--junitxml={out}", *extra_args]
-    subprocess.run(cmd, check=False)
+    env = {k: v for k, v in os.environ.items() if k != "NAR_CONF_DIR"}
+    subprocess.run(cmd, check=False, env=env)
     if not out.exists():
         raise RuntimeError(f"pytest のレポートが作られませんでした: {' '.join(cmd)}")
     return out

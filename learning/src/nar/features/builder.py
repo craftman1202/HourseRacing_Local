@@ -18,7 +18,8 @@ from ..config import FeatureConfig
 from ..transform.prerace import (
     ASOF_RACE_WHITELIST, assert_no_market_info, assert_prerace,
 )
-from . import declared
+from . import banei, declared
+from .banei import BANEI_FEATURES
 from .declared import DECLARED_FEATURES
 from .shrinkage import sql_shrink
 
@@ -39,6 +40,28 @@ ASOF_FEATURES = (
 ASOF_FEATURES = ASOF_FEATURES + DECLARED_FEATURES
 
 MARKET_FEATURES = ("odds_win", "market_implied_logit", "popularity")
+
+# ばんえいでは情報を持たない列（features/banei.py の docstring に根拠）。
+# 残すと標準化がゼロ分散で壊れるか、全行 NaN の列を契約に載せることになる。
+BANEI_DROPPED = (
+    "distance",
+    "d_turn_starts", "d_turn_winrate",
+    "d_dist_starts", "d_dist_winrate",
+    "d_best_speed", "d_best_speed_good", "d_best_speed_penalty",
+)
+
+
+def asof_features(cfg: FeatureConfig | None = None) -> tuple[str, ...]:
+    """この設定で作られる特徴量の名前と順序。
+
+    モジュール定数を直接読むと variant が反映されず、ばんえい側が平地の
+    列集合を要求して推論が止まる。列の順序は feature_spec のハッシュに
+    乗るので、ここが唯一の定義点であることが重要（SK-03）。
+    """
+    if cfg is None or getattr(cfg, "variant", "flat") != "banei":
+        return ASOF_FEATURES
+    kept = tuple(c for c in ASOF_FEATURES if c not in BANEI_DROPPED)
+    return kept + BANEI_FEATURES
 
 
 # 全順序。start_ts だけでは同着ならぬ「同時刻の別場」で並びが決まらず、
@@ -178,7 +201,12 @@ def build(
         # したがってスレッド数を絞る必要はない。決定性は FE-09（同じ入力で
         # 同じハッシュ）と LK-05（未来を汚してもビット一致）が担保する。
         # 1スレッドに固定していた頃は推論1レースの特徴量構築が 48 秒かかっていた。
-        entry = entry[~entry["baba_code"].isin(cfg.exclude_baba_codes)].copy()
+        entry = entry[~entry["baba_code"].isin(cfg.exclude_baba_codes)]
+        if cfg.include_baba_codes:
+            # include を書いた設定は「それ以外を一切入れない」意味。ばんえい側の
+            # 履歴に平地が混ざると、騎手・調教師の勝率が別競技の成績で薄まる。
+            entry = entry[entry["baba_code"].isin(cfg.include_baba_codes)]
+        entry = entry.copy()
         con.register("entry_raw", entry)
         con.register("race_raw", race)
         con.register("entry_si_raw", speed_index(entry))
@@ -294,6 +322,15 @@ def build(
     else:
         log.warning("as-of-race が確定した累積成績列がありません。"
                     "申告値ベースの特徴量は作りません（nar leak-check 未実行）。")
+
+    if cfg.variant == "banei":
+        ban = banei.build(entry, race).set_index(["race_id", "horse_no"])
+        idx = pd.MultiIndex.from_arrays([out["race_id"], out["horse_no"]])
+        for c in BANEI_FEATURES:
+            out[c] = ban[c].reindex(idx).to_numpy()
+        # 平地専用の列は物理的に落とす。残しておくと「契約には無いが frame には
+        # ある」列ができ、選択の結果しだいで静かに紛れ込む。
+        out = out.drop(columns=[c for c in BANEI_DROPPED if c in out.columns])
 
     # 全行 NaN でも列は落とさない。落とすと特徴量スキーマがデータ依存になり、
     # 学習時と推論時で列集合がずれて feature_spec が一致しなくなる（SK-03）。

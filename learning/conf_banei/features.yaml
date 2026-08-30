@@ -1,0 +1,46 @@
+# ばんえい競馬用の特徴量設定。
+#
+# 平地とは別モデルである（TR-11 / artifacts/eda/assumptions.json の
+# 「ばんえいを学習データセットから完全に除外する」に対する、
+# 「必要なら別モデルを立てる」の側）。conf/features.yaml は一切変更していない。
+#
+# 使い方: NAR_CONF_DIR=conf_banei nar learn ...
+
+max_lookback_days: 180
+
+track: A   # A=オッズ非使用 / B=オッズ使用
+
+variant: banei
+
+# ばんえいは 帯広ば(3) だけではない。1998-2006 には 北見ば(1)・岩見ば(2)・
+# 旭川ば(4) が実在し、3場で 10,336 レースある。現存は帯広のみだが、
+# 競技として同一で騎手・調教師・血統も連続しているので学習には全部入れる。
+include:
+  baba_codes: [1, 2, 3, 4]
+
+train_from: "1998-01-01"
+
+shrinkage:
+  # ばんえいは騎手 20 人強・調教師 20 人強の小さな母集団で、1人あたりの
+  # 出走数が平地より桁で多い。収縮を平地と同じ強さにすると効きすぎるため
+  # 弱める（alpha は「何戦ぶんの事前を混ぜるか」）。
+  alpha_jockey: 30.0
+  alpha_trainer: 30.0
+  alpha_sire: 20.0
+  alpha_post: 100.0
+
+windows:
+  recent_form_n: 3
+  rolling_days: 180
+
+market_term_blocklist:
+  - odds
+  - オッズ
+  - ninki
+  - 人気
+  - support
+  - 支持率
+  - payout
+  - 払戻
+  - market
+  - implied

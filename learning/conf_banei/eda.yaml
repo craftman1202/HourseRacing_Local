@@ -1,0 +1,49 @@
+# EDA 設定
+# 閾値の既定は programmatic-eda/references/quality_thresholds.md に準拠。
+# ここで上書きしたものだけがプロジェクト固有の判断として記録に残る。
+
+thresholds:
+  null_warn_pct: 5.0
+  null_fail_pct: 30.0
+  dup_full_row_fail_pct: 1.0
+  outlier_z: 3.0
+  outlier_iqr_k: 1.5
+  skew_warn: 1.0
+  skew_fail: 2.0
+  corr_flag: 0.80
+  corr_near_perfect: 0.95
+
+# プロジェクト固有の上書き（理由を必ず添える。analysis-assumptions-log に転記される）
+overrides:
+  - column: weight_kg            # 馬体重
+    null_warn_pct: 40.0
+    null_fail_pct: 60.0
+    reason: "古い年は馬体重の記録自体が無い場がある。全体の欠損率で警告を出しても
+             判断材料にならないので、年別の欠損率（Q1 のカバレッジ地図）で判断する。"
+  - column: sire_sk              # 父馬名
+    null_warn_pct: 20.0
+    null_fail_pct: 40.0
+    reason: "血統欠損は古い年に集中。horse_sk の代理キーに使うため、欠損の影響は
+             欠損率ではなく名寄せ品質（Q3 の identity 監査）で追跡する。"
+
+# 設計書 §7 の6問。EDA はこの順に答えを出す。
+questions:
+  q1_coverage: true      # 年×競馬場のカバレッジと欠損の地図
+  q2_leakage: true       # 累積成績8列の時点性（最優先・LK-01..03）
+  q3_identity: true      # horse_sk / horse_alias の名寄せ検証
+  q4_target: true        # ターゲット基礎統計・favourite-longshot bias
+  q5_drift: true         # 年次PSIによる構造変化点の検出
+  q6_takeout: true       # 券種別・場別の控除率実測
+
+psi:
+  bins: 10
+  # PSI の慣例的な判定閾値
+  warn: 0.10
+  fail: 0.25
+
+# 多重比較補正。年×場×指標で数百の比較を同時に見るため必須（~/.claude/CLAUDE.md）
+multiple_comparison:
+  method: fdr_bh
+  alpha: 0.05
+
+report_dir: ./artifacts/eda

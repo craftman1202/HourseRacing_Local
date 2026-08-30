@@ -110,8 +110,14 @@ def golden_silver_frames() -> dict[str, pd.DataFrame]:
         return refresh.build_silver_frames(store)
 
 
-def test_load_history_excludes_banei_from_real_data(wh, clock, golden_silver_frames):
-    """golden fixture は6レース全てばんえい（帯広ば, baba_code=3）。全件除外され0行になる。"""
+def test_load_history_keeps_banei_so_it_has_past_form(wh, clock, golden_silver_frames):
+    """golden fixture は6レース全てばんえい（帯広ば, baba_code=3）。確定層に入ること。
+
+    以前はここで全件落としていた。その結果ばんえいの推論は過去走を1行も引けず、
+    毎回 InsufficientData で失敗していた（2026-08-29, race_id=032026082906）。
+    平地の特徴量に混ざらないことは、ビルダー側の exclude が保証する
+    （test_transform.py::test_tr11_banei_excluded_from_training_set）。
+    """
     entry = golden_silver_frames["entry"]
     race = golden_silver_frames["race"]
     assert (entry["baba_code"] == 3).all(), "フィクスチャ前提が変わっています（要テスト見直し）"
@@ -119,8 +125,10 @@ def test_load_history_excludes_banei_from_real_data(wh, clock, golden_silver_fra
     result = refresh.load_history(wh, entry, race, since=None,
                                   source_sha256="deadbeef", clock=clock)
 
-    assert result.total_merged == 0
-    assert wh.table("entry_result_final").empty
+    assert result.total_merged == len(entry)
+    stored = wh.table("entry_result_final")
+    assert not stored.empty
+    assert (stored["baba_code"] == 3).all()
 
 
 def _with_synthetic_non_banei_race(entry: pd.DataFrame, race: pd.DataFrame,
@@ -144,18 +152,18 @@ def _with_synthetic_non_banei_race(entry: pd.DataFrame, race: pd.DataFrame,
            pd.concat([race, synth_race], ignore_index=True))
 
 
-def test_load_history_merges_non_banei_rows_and_since_filters_by_date(wh, clock,
-                                                                       golden_silver_frames):
-    """非ばんえいの行は確定層に入り、--since で日付フィルタされること。"""
+def test_load_history_merges_both_codes_and_since_filters_by_date(wh, clock,
+                                                                  golden_silver_frames):
+    """平地・ばんえいのどちらも確定層に入り、--since で日付フィルタされること。"""
     import datetime as _dt
 
     entry, race = _with_synthetic_non_banei_race(
         golden_silver_frames["entry"], golden_silver_frames["race"],
         race_date=_dt.date(2026, 8, 1))
 
-    # since より前（実フィクスチャの2026-07分、ばんえいなのでどのみち除外される）
-    # と since 以降（合成した非ばんえい行）が混在する状態で、日付フィルタと
-    # ばんえい除外が両方正しく効くことを確認する
+    # since より前（実フィクスチャの2026-07分＝ばんえい）と since 以降
+    # （合成した平地の行）が混在する状態で、日付フィルタが効くことを確認する。
+    # 場コードでの選別はもう行わない（ばんえいも確定層に入れる）。
     result = refresh.load_history(wh, entry, race, since=_dt.date(2026, 8, 1),
                                   source_sha256="cafef00d", clock=clock)
 
@@ -165,7 +173,8 @@ def test_load_history_merges_non_banei_rows_and_since_filters_by_date(wh, clock,
     assert (pd.to_datetime(final["race_date"]).dt.date >= _dt.date(2026, 8, 1)).all(), (
         "since より前の行が確定層に入っています"
     )
-    assert not final["baba_code"].isin(refresh.BANEI_BABA_CODES).any()
+    assert final["baba_code"].eq(20).all(), (
+        "since より後にあるのは合成した大井の行だけのはず")
     assert final["source_sha256"].eq("cafef00d").all()
 
 
@@ -196,17 +205,14 @@ def test_daily_refresh_merges_and_persists_state_on_success(tmp_path, wh, clock,
                                     persist_root=persist_root, since_days=3650)
 
     assert summary.n_bronze_tables > 0
-    # golden fixture は全件ばんえいなので merge 対象は0行（別テストで非ばんえいの
-    # merge 自体は検証済み）。ここでは ingest→bronze→silver→merge の全経路が
-    # エラー無く完走し、状態が永続化されることを検証する。
-    assert summary.load_history.total_merged == 0
+    # ingest→bronze→silver→merge の全経路がエラー無く完走し、状態が永続化される
+    # ことを検証する。golden fixture は全件ばんえいだが、確定層には入る。
+    assert summary.load_history.total_merged > 0
+    assert wh.table("entry_result_final")["baba_code"].eq(3).all()
     assert (tmp_path / "persist" / "meta" / "manifest.duckdb").exists(), (
         "成功時は manifest を永続化先へ書き戻すはず")
     assert list((tmp_path / "persist" / "raw").rglob("*.zip")), (
         "成功時は raw ZIP を永続化先へ書き戻すはず")
-
-    # golden fixture が全件ばんえいのため確定層は空のままで正しい
-    assert wh.table("entry_result_final").empty
 
 
 def test_daily_refresh_second_run_reuses_persisted_manifest(tmp_path, wh, clock, monkeypatch):

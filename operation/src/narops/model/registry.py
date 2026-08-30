@@ -18,6 +18,36 @@ from .manifest import Manifest, verify_artifacts
 
 CURRENT = "current.json"
 AUDIT = "promotions.jsonl"
+# 競技ごとに current ポインタを分ける。平地とばんえいは別モデル・別列集合で、
+# 片方を昇格させたときにもう片方まで動くと、検証していない版が本番に出る。
+# releases/ は共有（リリース ID が別なので衝突しない）。
+FAMILIES = ("flat", "banei")
+
+
+def current_pointer(family: str = "flat") -> str:
+    if family not in FAMILIES:
+        raise ValueError(f"未知のモデル系統: {family!r}（{FAMILIES} のいずれか）")
+    return CURRENT if family == "flat" else f"current_{family}.json"
+
+
+# ばんえいモデルだけが持つ特徴量の接頭辞（features/banei.py の BANEI_FEATURES）。
+# 系統の判定にリリース ID の綴りを使わない — 命名規約は破れるが、
+# 配布物が宣言している特徴量は破れない。
+_BANEI_PREFIX = "b_"
+
+
+def family_of(manifest) -> str:
+    """配布物そのものから系統を判定する。
+
+    `releases/` は系統をまたいで共有なので、ID を打ち間違えれば平地のリリースを
+    `current_banei` に置けてしまう。そうなると 200m 直線のレースが、距離と回りの
+    特徴量で学習したモデルで採点され、その結果で賭け金が決まる。
+    """
+    spec = getattr(manifest, "feature_spec", None)
+    names = tuple(getattr(spec, "names", ()) or ())
+    if not names:
+        return ""      # 旧リリースは spec 本体を持たない。判定しない
+    return "banei" if any(n.startswith(_BANEI_PREFIX) for n in names) else "flat"
 
 
 @dataclass
@@ -34,8 +64,10 @@ class ModelRegistry:
     ディレクトリ構造は設計書の `gs://nar-model/` と同一にしてある。
     """
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, family: str = "flat") -> None:
         self.root = Path(root)
+        self.family = family
+        self.current_file = current_pointer(family)
         (self.root / "releases").mkdir(parents=True, exist_ok=True)
 
     # -------------------------------------------------------------- 参照
@@ -54,7 +86,7 @@ class ModelRegistry:
 
     # -------------------------------------------------------------- MP-05
     def current_id(self) -> str | None:
-        p = self.root / CURRENT
+        p = self.root / self.current_file
         if not p.exists():
             return None
         return json.loads(p.read_text(encoding="utf-8")).get("release_id")
@@ -75,10 +107,17 @@ class ModelRegistry:
             raise ArtifactIntegrityError(
                 f"{release_id} は releases 配下に実在しません。current は実在する"
                 "ディレクトリのみを指せます。")
-        self.load(release_id, verify=True)      # 壊れた版へは切り替えない
+        release = self.load(release_id, verify=True)   # 壊れた版へは切り替えない
+        actual = family_of(release.manifest)
+        if actual and actual != self.family:
+            raise ArtifactIntegrityError(
+                f"{release_id} は {actual} のモデルです（特徴量 "
+                f"{list(release.manifest.feature_spec.names)[:3]}…）。"
+                f"{self.family} の current には置けません。"
+                "系統を取り違えると、別競技のレースを別競技のモデルで採点します。")
 
         previous = self.current_id()
-        target = self.root / CURRENT
+        target = self.root / self.current_file
         tmp = target.with_suffix(".json.tmp")
         tmp.write_text(json.dumps({
             "release_id": release_id,
@@ -89,6 +128,7 @@ class ModelRegistry:
         with (self.root / AUDIT).open("a", encoding="utf-8") as f:
             f.write(json.dumps({
                 "at": datetime.now().isoformat(timespec="seconds"),
+                "family": self.family,
                 "actor": actor, "from": previous, "to": release_id, "reason": reason,
             }, ensure_ascii=False) + "\n")
 
@@ -109,7 +149,10 @@ class ModelRegistry:
 
     def rollback(self, actor: str = "system") -> str:
         """直前のリリースへ戻す（MP-08）。"""
-        history = [e for e in self.audit_log() if e.get("from")]
+        # 監査ログは系統をまたいで1本。自分の系統の履歴だけを見ないと、
+        # 平地のロールバックがばんえいのリリース ID を指してしまう。
+        history = [e for e in self.audit_log()
+                   if e.get("from") and e.get("family", "flat") == self.family]
         if not history:
             raise PromotionRejected("戻せる直前リリースの記録がありません")
         previous = history[-1]["from"]
