@@ -101,12 +101,23 @@ def race_embed(
     jst = to_jst(start_ts)
     remaining = (start_ts - now).total_seconds() / 60.0
 
-    lines = ["```", " 馬番 馬名              予測   市場   EV    推奨"]
-    for _, r in shown.sort_values("ev_adjusted", ascending=False).iterrows():
+    # 複勝（上位3着以内）は narops.inference が単勝確率から Harville 式で
+    # 近似した p_top3 を使う。無い呼び出し元（テストなど）では列自体を出さない。
+    has_top3 = "p_top3" in shown.columns
+    header = " 馬番 馬名              単勝   複勝   市場   EV    推奨" if has_top3 \
+        else " 馬番 馬名              単勝   市場   EV    推奨"
+    lines = ["```", header]
+    # 1着になる予想確率（単勝）が高い順。EV 順だと「万馬券候補が上、本命が下」
+    # という直感に反する並びになる — EV は的中率と払戻の掛け算なので、
+    # 単勝オッズが高い（人気が薄い）馬ほど同じ的中率でも EV が伸びやすく、
+    # 実際に勝ちそうな順（p_win 順）と一致しない。
+    for _, r in shown.sort_values("p_win", ascending=False).iterrows():
         no = int(r["horse_no"])
         name = (names.get(no, f"{no}番") + "　" * 9)[:9]
+        top3 = f" {fmt_pct(r['p_top3']):>6}" if has_top3 else ""
         lines.append(
-            f" {no:>3}  {name}  {fmt_pct(r['p_win']):>6} {fmt_pct(r.get('p_market', float('nan'))):>6}"
+            f" {no:>3}  {name}  {fmt_pct(r['p_win']):>6}{top3}"
+            f" {fmt_pct(r.get('p_market', float('nan'))):>6}"
             f" {fmt_ev(r['ev_adjusted']):>5}  {fmt_stake(r['stake_yen'], r.get('stake_hint_yen'))}")
     lines.append("```")
 

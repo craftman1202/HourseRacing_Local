@@ -142,8 +142,8 @@ class NarSource:
             raise InsufficientData(
                 f"{race_id}: レース条件（距離・クラス）を読めませんでした。"
                 "固定値では推論しません。")
-        for key in ("distance", "class_level", "prize_yen", "surface", "turn",
-                    "baba_condition"):
+        for key in ("distance", "class_level", "class_name", "prize_yen", "surface",
+                    "turn", "baba_condition"):
             if key in header:
                 card[key] = header[key]
 

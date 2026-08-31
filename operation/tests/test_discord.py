@@ -398,3 +398,60 @@ def test_fmt_stake_prefers_the_actionable_amount_over_the_hint():
     assert fmt_stake(0, 0) == "—"
     assert fmt_stake(0, None) == "—"
     assert fmt_stake(float("nan"), 74) == "(¥74)"
+
+
+# --------------------------------------------------- 単勝・複勝の併記
+def test_dc05_shows_both_win_and_place_probability_when_available():
+    """p_top3 が渡されたら単勝・複勝の両方を通知に載せること。"""
+    cand = pd.DataFrame({
+        "horse_no": [5], "p_win": [0.20], "p_top3": [0.55], "p_market": [0.10],
+        "ev": [2.0], "ev_adjusted": [2.0], "stake_yen": [500],
+    })
+    e = race_embed(race_id="R", track_name="帯広ば", race_no=1, class_name="C1",
+                   distance=200, start_ts=to_utc(START),
+                   now=to_utc(START) - timedelta(minutes=13), candidates=cand,
+                   model_release="v-banei", track_used="A+B")
+    assert e is not None
+    assert "単勝" in e.description and "複勝" in e.description
+    assert "20.0%" in e.description   # 単勝
+    assert "55.0%" in e.description   # 複勝
+
+
+def test_dc05_falls_back_gracefully_without_place_probability(candidates):
+    """p_top3 を渡さない既存の呼び出し元でも、複勝欄なしで正しく組み立つこと。"""
+    e = race_embed(race_id="202026082511", track_name="大井", race_no=11,
+                   class_name="C1三", distance=1200, start_ts=to_utc(START),
+                   now=to_utc(START) - timedelta(minutes=12),
+                   model_release="v2026.08.24-A", track_used="B",
+                   candidates=candidates)
+    assert e is not None
+    assert "複勝" not in e.description
+    assert "単勝" in e.description
+
+
+# ------------------------------------------------------------ 並び順
+def test_dc05_rows_are_sorted_by_win_probability_not_ev():
+    """EV 順だと「万馬券候補が上、本命が下」という直感に反する並びになる。
+
+    EV は的中率×払戻なので、同じ的中率でもオッズが高い（人気薄の）馬ほど
+    伸びやすく、p_win の順序とは一致しない。実際に勝ちそうな順で読めるように
+    p_win 降順にする。
+    """
+    cand = pd.DataFrame({
+        "horse_no": [1, 2, 3],
+        "p_win": [0.10, 0.35, 0.20],       # 本命は2番
+        "p_market": [0.08, 0.30, 0.15],
+        "ev": [3.5, 1.1, 1.3],             # EV では1番が最上位（人気薄の穴）
+        "ev_adjusted": [3.5, 1.1, 1.3],
+        "stake_yen": [0, 0, 0],
+    })
+    e = race_embed(race_id="R", track_name="大井", race_no=1, class_name="C1",
+                   distance=1200, start_ts=to_utc(START),
+                   now=to_utc(START) - timedelta(minutes=13),
+                   model_release="v-test", track_used="A", candidates=cand,
+                   min_ev=1.0)
+    assert e is not None
+    lines = e.description.splitlines()
+    rows = [l for l in lines if l.strip() and l.strip()[0].isdigit()]
+    order = [int(r.split()[0]) for r in rows]
+    assert order == [2, 3, 1], f"p_win 降順（2,3,1）になっていません: {order}"

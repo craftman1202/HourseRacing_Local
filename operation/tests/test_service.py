@@ -374,3 +374,93 @@ def test_refresh_live_actually_fetches_results(svc, schedule_rows, monkeypatch):
     out = refresh_live_endpoint(svc)
     assert calls, "成績を一度も取りに行っていません"
     assert out["rows"] > 0, out
+
+
+# --------------------------------------------------- Discord 通知の中身
+def test_discord_notification_includes_track_name_class_name_and_horse_names(
+        wh, cfg, release_dir, schedule_rows, monkeypatch):
+    """通知の見出しに競馬場名・クラス名、各行に馬名が乗ること。
+
+    `_upsert_schedule` は baba_code しか永続化しない（race_schedule に
+    track_name 列自体が無い）ので、`row.get("track_name", "")` は常に
+    空文字になっていた。class_name も出馬表ヘッダから row へコピーする
+    経路が無かった。馬名は res.frame に無い（学習側は特徴量に使わない）ので、
+    出馬表から馬番→馬名の対応表を別に渡さないと通知は馬番だけになる。
+    どちらも `_deliver` を実際に一度も呼ばないテストでは検出できなかった
+    （svc.sender は既存テストのどこにも設定されていない）。
+    """
+    import httpx
+
+    from narops.clock import to_utc
+    from narops.db.merge import merge_final
+    from narops.discord.client import DiscordSender
+    from narops.model.manifest import Manifest
+    from narops.service import Services
+
+    clock = FixedClock(START - timedelta(minutes=13))
+    merge_final(wh, make_results(n_races=28, start_day=18, seed=2), clock=clock)
+
+    class StubSource:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return None
+
+        def fetch_schedule(self, day):
+            return pd.DataFrame(schedule_rows)
+
+        def fetch_entry_card(self, race_id, baba_code, day, race_no):
+            return pd.DataFrame([
+                {"race_id": RACE_ID, "horse_no": i + 1,
+                 "horse_name": f"テストウマ{i + 1}",
+                 "horse_sk": f"H{i:04d}", "jockey_sk": f"J{i % 12:03d}",
+                 "trainer_sk": f"T{i % 9:03d}", "sire_sk": f"S{i % 6:03d}"}
+                for i in range(8)])
+
+        def fetch_odds(self, race_id, baba_code, day, race_no):
+            return pd.DataFrame({"race_id": RACE_ID, "horse_no": range(1, 9),
+                                 "odds_win": [3.2, 5.1, 8.0, 12.5, 4.4, 22.0, 60.0, 15.0]})
+
+    sent_payloads = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        sent_payloads.append(json.loads(request.content))
+        return httpx.Response(204)
+
+    sender = DiscordSender("https://discord.com/api/webhooks/1/x",
+                           transport=httpx.MockTransport(handler))
+
+    manifest = Manifest.read(release_dir / "manifest.json")
+    manifest.ensemble_weights = {"a": 0.5, "b": 0.5}
+
+    class ConstScorer:
+        def __init__(self, seed):
+            self.rng = np.random.default_rng(seed)
+
+        def score(self, frame):
+            return self.rng.normal(size=len(frame))
+
+    from nar.config import feature_config
+
+    svc = Services(
+        wh=wh, cfg=cfg, clock=clock,
+        state=OperatingState(Mode.PAPER, ModelProvenance.SYNTHETIC),
+        source_factory=StubSource, manifest=manifest,
+        models={"a": ConstScorer(0), "b": ConstScorer(1)},
+        feature_config=feature_config(), sender=sender)
+
+    plan_day_endpoint(svc, DAY)
+    out = infer_endpoint(svc, RACE_ID)
+    assert out.status == "ok"
+    sender.close()
+
+    assert sent_payloads, "Discord に何も送っていません"
+    desc = sent_payloads[0]["embeds"][0]["description"]
+    title = sent_payloads[0]["embeds"][0]["title"]
+    assert schedule_rows[0]["track_name"] in title, (
+        f"見出しに競馬場名がありません: {title!r}")
+    assert any(f"テストウマ{i}" in desc for i in range(1, 9)), (
+        f"本文に馬名がありません: {desc!r}")

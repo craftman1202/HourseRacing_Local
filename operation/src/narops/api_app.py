@@ -28,22 +28,14 @@ from .mode import OperatingState
 
 UTC = timezone.utc
 
-_TRACK_NAMES: dict[int, str] | None = None
-
-
 def _track_names() -> dict[int, str]:
-    """baba_code → 競馬場名。学習側の TrackMaster（名前→コード）の逆引き。
-
-    ここで再実装せず既存のマスタをそのまま借りる（廃止場は含まれないので、
-    未知コードは `f"場{code}"` にフォールバックする — 実在しない名前を
-    でっち上げるより、コードのまま出すほうが安全）。
+    """baba_code → 競馬場名。実装は shared.track_names() の1本化
+    （Discord 通知側 service.py と同じものを借りる。2箇所に持つと
+    片方だけ場名を直してもう片方が古いままになる）。
     """
-    global _TRACK_NAMES
-    if _TRACK_NAMES is None:
-        from nar.transform.keys import TrackMaster
+    from .shared import track_names
 
-        _TRACK_NAMES = {code: name for name, code in TrackMaster().mapping.items()}
-    return _TRACK_NAMES
+    return track_names()
 
 
 def _manifest_of(registry: Any, release_id: str):

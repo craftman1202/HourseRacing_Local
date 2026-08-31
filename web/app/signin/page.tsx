@@ -9,7 +9,7 @@ export default function SignInPage() {
         <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
           <h1 className="text-lg font-semibold">nar-web にサインイン</h1>
           <p className="text-sm text-muted-foreground">
-            許可された Google アカウントのみアクセスできます。
+            Google アカウントがあれば誰でも登録・ログインできます。
           </p>
           <form
             action={async () => {

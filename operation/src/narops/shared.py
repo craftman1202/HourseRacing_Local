@@ -34,6 +34,7 @@ from nar.transform.prerace import (  # noqa: E402
 )
 
 race_softmax = _metrics.race_softmax
+harville_place_probability = _metrics.harville_place_probability
 normalize_within_race = _metrics.normalize_within_race
 race_nll = _metrics.race_nll
 expected_calibration_error = _metrics.expected_calibration_error
@@ -44,9 +45,10 @@ __all__ = [
     "ConstrainedStacker", "TemperatureScaler",
     "assert_prerace", "to_prerace", "effective_odds", "kelly_fraction",
     "implied_takeout", "inverse_odds_sum", "shrink",
-    "race_softmax", "normalize_within_race", "race_nll",
+    "race_softmax", "normalize_within_race", "race_nll", "harville_place_probability",
     "expected_calibration_error", "summary_metrics",
     "learning_package_root", "learning_conf_dir", "feature_config_for",
+    "track_names",
 ]
 
 
@@ -56,6 +58,26 @@ _CONF_DIRS = {
     "flat": "conf",
     "banei": "conf_banei",
 }
+
+
+_TRACK_NAMES: dict[int, str] | None = None
+
+
+def track_names() -> dict[int, str]:
+    """baba_code → 競馬場名。学習側の TrackMaster（名前→コード）の逆引き。
+
+    Discord 通知・API の両方が同じ表示名を出す必要があるので、ここを唯一の
+    実装にする（api_app と service で別々に持つと、片方だけ場名を直して
+    もう片方が古いままになる）。廃止場は KNOWN_BABA_CODES に含まれないので、
+    未知コードは呼び出し側で `場{code}` にフォールバックさせる — 実在しない
+    名前をでっち上げるより、コードのまま出すほうが安全。
+    """
+    global _TRACK_NAMES
+    if _TRACK_NAMES is None:
+        from nar.transform.keys import TrackMaster
+
+        _TRACK_NAMES = {code: name for name, code in TrackMaster().mapping.items()}
+    return _TRACK_NAMES
 
 
 def learning_conf_dir(family: str = "flat") -> Path:

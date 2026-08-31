@@ -42,6 +42,7 @@ from .pipeline import (
     InferenceOutcome, day_budget_remaining, write_bet_candidates, write_prediction,
 )
 from .scheduling import BANEI_BABA_CODES, INFER, coverage, plan_day, reconcile
+from .shared import track_names
 from .tasks import TaskQueue
 
 log = logging.getLogger(__name__)
@@ -442,10 +443,17 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
 
     # レース条件は当日ページが正。race_schedule は距離もクラスも持たず、
     # 以前はここが既定値（distance=1200 / class_level=1）のまま推論していた。
-    for key in ("distance", "class_level", "prize_yen", "surface", "turn",
-                "baba_condition"):
+    for key in ("distance", "class_level", "class_name", "prize_yen", "surface",
+                "turn", "baba_condition"):
         if key in card.columns and card[key].notna().any():
             row[key] = card[key].iloc[0]
+
+    # 競馬場名は race_schedule に持たない（baba_code だけを保存する設計 —
+    # _upsert_schedule 参照）。表示名は baba_code から都度導く。
+    # 以前は Discord 通知の見出しがここが空文字のまま出ていた
+    # （row.get("track_name", "") が常に "" — race_schedule に列自体が無い）。
+    row["track_name"] = track_names().get(
+        int(row["baba_code"]), f"場{int(row['baba_code'])}")
 
     try:
         feats = build_for_race(svc.wh, card, row, bundle.manifest, bundle.feature_config,
@@ -489,25 +497,31 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
     candidates = res.bet_candidates(svc.cfg.discord_min_ev)
 
     if svc.state.can_deliver() and svc.sender is not None:
-        _deliver(svc, race_id, row, res, day, bundle)
+        _deliver(svc, race_id, row, res, day, bundle, card)
 
     return InferenceOutcome(race_id, "ok", res.frame, candidates)
 
 
 def _deliver(svc: Services, race_id: str, row: pd.Series, res, day: date,
-             bundle: "ModelBundle | None" = None) -> None:
+             bundle: "ModelBundle | None" = None,
+             card: pd.DataFrame | None = None) -> None:
     # 配信にもレースを担当した束の model_id を使う。svc.manifest 固定だと、
     # ばんえいの通知が平地のリリース ID で出て、重複排除キーも競合する。
     manifest = (bundle or svc.bundle_for(int(row["baba_code"]))).manifest
     key = dedupe_key(race_id, manifest.model_id)
     if already_sent(svc.wh, race_id, "prediction", key):
         return                                    # DC-07
+    # 馬番だけでは「どの馬か」が通知から読めない。出馬表に載っている
+    # 馬名をここで馬番に対応付ける（学習側は特徴量に馬名を使わないので、
+    # res.frame には馬番しか無い）。
+    horse_names = (dict(zip(card["horse_no"], card["horse_name"]))
+                  if card is not None and "horse_name" in card.columns else {})
     embed = race_embed(
         race_id=race_id, track_name=str(row.get("track_name", "")),
         race_no=int(row["race_no"]), class_name=str(row.get("class_name", "")),
         distance=int(row.get("distance", 0)), start_ts=to_utc(row["start_ts"]),
         now=svc.clock.now(), model_release=manifest.model_id,
-        track_used=res.track_used, candidates=res.frame,
+        track_used=res.track_used, candidates=res.frame, horse_names=horse_names,
         day_budget_remaining=day_budget_remaining(svc.wh, day, svc.cfg.max_bet_per_day),
         min_ev=svc.cfg.discord_min_ev)
     if embed is None:

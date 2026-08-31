@@ -47,6 +47,58 @@ def normalize_within_race(p: np.ndarray, race_ids: np.ndarray) -> np.ndarray:
     return np.where(degenerate, 1.0 / size[codes], out)
 
 
+def harville_place_probability(p_win: np.ndarray, race_ids: np.ndarray, k: int = 3) -> np.ndarray:
+    """単勝確率から複勝（上位 k 着以内）確率を Harville (1973) 式で近似する。
+
+    このモデルは単勝確率しか出さない（レース内 softmax の出力は「1着になる
+    確率」で、複勝を直接予測してはいない）。Harville の仮定は「1着馬を
+    取り除いた残りの馬の間では、単勝確率を再正規化したものがそのまま
+    次の順位の条件付き確率になる」— 実力の相対比は着順が進んでも変わらない
+    という単純化。競馬の複勝確率近似として広く使われる標準手法で、それ以上
+    の情報（着差分布など）は要求しない。
+
+    頭数 n < k のレースは、全馬が top-k に入るので確率 1.0 になる
+    （3頭立てで複勝を買えば全員に払い戻しがあるのと同じ理屈）。
+    """
+    p_win = np.asarray(p_win, dtype=float)
+    codes, n_races = _codes(race_ids)
+    out = np.empty_like(p_win)
+    for race in range(n_races):
+        idx = np.flatnonzero(codes == race)
+        out[idx] = _harville_single_race(p_win[idx], k)
+    return out
+
+
+def _harville_single_race(p: np.ndarray, k: int) -> np.ndarray:
+    """1レース分。着順を1つずつ確定させる経路をすべて数え上げる。
+
+    「1着が j、2着が m、3着が i」のような**特定の順序**でしか登場しない
+    条件付き確率（分母が `1 - p[j] - p[m]` のように、それまでに確定した
+    馬**全員**の確率を引く）を扱うので、直前の1頭だけを引く単純な漸化式
+    では k>=3 で値がずれる。頭数は NAR で最大でも十数頭、k は高々3なので、
+    全経路を再帰的に数え上げても計算量は無視できる（最大でも
+    n×(n-1)×(n-2) 通り）。
+    """
+    n = len(p)
+    k = min(k, n)
+    result = np.zeros(n)
+    if k <= 0:
+        return result
+
+    def walk(remaining: list[int], mass: float, path_weight: float, depth: int) -> None:
+        if depth == k:
+            return
+        for idx in remaining:
+            if mass <= EPS:
+                continue
+            weight = path_weight * (p[idx] / mass)
+            result[idx] += weight
+            walk([i for i in remaining if i != idx], mass - p[idx], weight, depth + 1)
+
+    walk(list(range(n)), 1.0, 1.0, 0)
+    return np.clip(result, 0.0, 1.0)
+
+
 def race_nll(p: np.ndarray, y: np.ndarray, race_ids: np.ndarray) -> float:
     """レースごとに勝ち馬の -log p を取り、レース単位で平均する。
 

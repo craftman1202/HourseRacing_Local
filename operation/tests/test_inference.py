@@ -367,3 +367,20 @@ def test_stake_hint_is_zero_without_odds(features, models, manifests, at_window,
                         manifests=manifests, weights={"lgbm": 0.5, "tabm": 0.5},
                         temperature=1.0, clock=at_window, cfg=cfg, odds=None)
     assert (res.frame["stake_hint_yen"] == 0).all()
+
+
+# --------------------------------------------------------------- p_top3
+def test_run_inference_includes_a_place_probability(features, models, manifests,
+                                                     at_window, cfg, odds):
+    """単勝しか予測しないモデルから、複勝（上位3着以内）確率も出すこと。
+
+    Discord 通知に単勝・複勝を並べて出すための入力（narops.discord.format）。
+    Harville 式の実装そのものの正しさは学習側 tests/test_eval.py が検証する。
+    """
+    res = run_inference(race_id="R", features=features, models=models,
+                        manifests=manifests, weights={"lgbm": 0.5, "tabm": 0.5},
+                        temperature=1.0, clock=at_window, cfg=cfg, odds=odds)
+    assert "p_top3" in res.frame.columns
+    assert res.frame["p_top3"].sum() == pytest.approx(min(3, len(res.frame)))
+    assert (res.frame["p_top3"] >= res.frame["p_win"] - 1e-9).all(), (
+        "複勝確率が単勝確率を下回っています（上位3着は1着を含むはず）")

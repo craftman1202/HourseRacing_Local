@@ -23,8 +23,8 @@ from .errors import (
 )
 from .model.manifest import Manifest, verify_no_version_mix
 from .shared import (
-    NOMINAL_TAKEOUT, ConstrainedStacker, effective_odds, kelly_fraction,
-    normalize_within_race, race_softmax,
+    NOMINAL_TAKEOUT, ConstrainedStacker, effective_odds, harville_place_probability,
+    kelly_fraction, normalize_within_race, race_softmax,
 )
 
 TOL = 1e-9
@@ -176,9 +176,15 @@ def run_inference(
 
     assert_normalized(p, race_ids)              # IN-01
 
+    # 複勝（上位3着以内）確率。単勝モデルしか無いので Harville 式で近似する
+    # （単勝確率だけから求める、着差分布などを要求しない標準的な近似）。
+    # 通知で「単勝ダメでも複勝は堅い」を読めるようにするのが目的。
+    p_top3 = harville_place_probability(p, race_ids, k=3)
+
     out = pd.DataFrame({
         "horse_no": features["horse_no"].to_numpy(),
         "p_win": p,
+        "p_top3": p_top3,
     })
 
     # IN-04: オッズが揃っているときだけトラックB（市場情報つき）を使う

@@ -250,3 +250,89 @@ def test_multiple_comparison_correction_is_monotone():
     adj = metrics.benjamini_hochberg(p)
     assert (adj >= p).all()
     assert np.all(np.diff(adj[np.argsort(p)]) >= -1e-12), "BH 補正後は単調でなければならない"
+
+
+# ------------------------------------------------------------------ Harville
+def test_harville_top1_equals_win_probability():
+    """k=1 は単勝確率そのもの（複勝という概念自体がまだ入っていない）。"""
+    p = np.array([0.5, 0.3, 0.2])
+    out = metrics.harville_place_probability(p, np.array(["R"] * 3), k=1)
+    assert out == pytest.approx(p)
+
+
+def test_harville_top2_matches_hand_computed_values():
+    """3頭立てを手計算した値と一致すること（実装の正しさの直接的な根拠）。
+
+    P(2着=A) = P(1着=B)*p_A/(1-p_B) + P(1着=C)*p_A/(1-p_C)
+             = 0.3*0.5/0.7 + 0.2*0.5/0.8 = 0.339286
+    残り2頭も同様。
+    """
+    p = np.array([0.5, 0.3, 0.2])
+    out = metrics.harville_place_probability(p, np.array(["R"] * 3), k=2)
+    expected_top2 = p + np.array([0.339286, 0.375, 0.285714])
+    assert out == pytest.approx(expected_top2, abs=1e-5)
+
+
+def test_harville_sums_to_min_k_and_n():
+    """top-k 確率の総和は必ず min(k, 頭数)（top-k に入る馬はちょうどその数だけ）。
+
+    出走頭数が k 未満のレース（実測: ばんえいで6頭立てのことがある）では
+    全馬が確実に上位k着以内に入るので、総和は頭数そのものになる。
+    """
+    rng = np.random.default_rng(0)
+    for n in (2, 3, 5, 9, 16):
+        raw = rng.random(n)
+        p = raw / raw.sum()
+        for k in (1, 2, 3):
+            out = metrics.harville_place_probability(p, np.array(["R"] * n), k=k)
+            assert out.sum() == pytest.approx(min(k, n), abs=1e-8), (n, k)
+
+
+def test_harville_is_monotonic_in_win_probability():
+    """単勝確率が高い馬ほど複勝確率も高い（実力の順序が逆転してはいけない）。"""
+    rng = np.random.default_rng(1)
+    for _ in range(20):
+        n = rng.integers(3, 17)
+        raw = rng.random(n)
+        p = raw / raw.sum()
+        out = metrics.harville_place_probability(p, np.array(["R"] * n), k=3)
+        order_p = np.argsort(-p)
+        assert np.all(np.diff(out[order_p]) <= 1e-9)
+
+
+def test_harville_never_exceeds_one_or_goes_negative():
+    rng = np.random.default_rng(2)
+    for _ in range(20):
+        n = rng.integers(2, 17)
+        raw = rng.random(n)
+        p = raw / raw.sum()
+        out = metrics.harville_place_probability(p, np.array(["R"] * n), k=3)
+        assert np.all(out >= 0.0) and np.all(out <= 1.0 + 1e-9)
+
+
+def test_harville_all_horses_reach_one_when_field_is_smaller_than_k():
+    """3頭立てで複勝（上位3着以内）を考えるのは全馬が対象になるのと同じ。"""
+    for n in (1, 2, 3):
+        p = np.full(n, 1.0 / n)
+        out = metrics.harville_place_probability(p, np.array(["R"] * n), k=3)
+        assert out == pytest.approx(np.ones(n))
+
+
+def test_harville_batches_multiple_races_independently():
+    """レースをまたいだ確率の漏れ込みが無いこと（race_ids で正しく分離される）。"""
+    p1 = np.array([0.5, 0.3, 0.2])
+    p2 = np.array([0.4, 0.25, 0.15, 0.12, 0.08])
+    p_all = np.concatenate([p1, p2])
+    race_ids = np.array(["R1"] * 3 + ["R2"] * 5)
+    out = metrics.harville_place_probability(p_all, race_ids, k=3)
+    assert out[:3] == pytest.approx(metrics.harville_place_probability(
+        p1, np.array(["R1"] * 3), k=3))
+    assert out[3:] == pytest.approx(metrics.harville_place_probability(
+        p2, np.array(["R2"] * 5), k=3))
+
+
+def test_harville_a_near_certain_favourite_has_high_place_probability():
+    """圧倒的1番人気は複勝もほぼ確実（境界的な健全性チェック）。"""
+    p = np.array([0.9, 0.05, 0.03, 0.02])
+    out = metrics.harville_place_probability(p, np.array(["R"] * 4), k=3)
+    assert out[0] > 0.99
