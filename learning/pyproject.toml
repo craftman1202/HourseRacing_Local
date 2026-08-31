@@ -23,6 +23,7 @@ gcs = ["gcsfs>=2024.6"]
 bayes = ["numpyro>=0.15", "jax>=0.4"]
 hpo = ["optuna>=4.0", "mlflow>=2.16"]
 dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+notebook = ["nbformat>=5.10", "nbclient>=0.10", "ipykernel>=6.29"]
 
 [project.scripts]
 nar = "nar.cli:main"
