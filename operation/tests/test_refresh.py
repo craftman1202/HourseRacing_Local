@@ -93,6 +93,79 @@ def test_build_silver_frames_raises_a_clear_error_when_bronze_is_empty(tmp_path)
         refresh.build_silver_frames(store)
 
 
+# ---------------------------------------------------- bronze の確定月キャッシュ
+def test_run_bronze_skips_extraction_for_already_bronzed_final_months(tmp_path, monkeypatch):
+    """is_final かつ bronze 既存の月は ZIP を再展開しない（コスト最適化の核心）。
+
+    2026-08-29 に追加された `nar-refresh` Job は毎日全履歴を bronze から
+    作り直しており、これが元の設計書 §6.1 の見積もりに入っていなかった実コストの
+    主因だった。確定済み月の再展開が実際に起きていないことを、
+    `build_from_zip` の呼び出し回数で直接検証する。
+    """
+    from nar.io.store import Store
+    from nar.io.manifest import Manifest, Record
+    from nar.transform import bronze as bz
+
+    store = Store(f"file://{tmp_path}")
+    store.ensure_layout()
+    manifest = Manifest(store.path("meta", "manifest.duckdb"))
+    raw_bytes = FIXTURE.read_bytes()
+    path = store.write_atomic(raw_bytes, "raw", "monthly", "race", "ym=2026-07",
+                              "202607_race.zip")
+    manifest.upsert(Record(file_key="monthly/race/2026-07", url="fixture://golden",
+                           fetched_at=dt.now(), http_status=200,
+                           content_length=len(raw_bytes), sha256="fixturehash",
+                           raw_path=path, status="ok", is_final=True))
+
+    assert refresh.run_bronze(store, manifest) > 0
+
+    calls: list = []
+    original = bz.build_from_zip
+
+    def _spy(*a, **kw):
+        calls.append(a)
+        return original(*a, **kw)
+
+    monkeypatch.setattr(bz, "build_from_zip", _spy)
+
+    n2 = refresh.run_bronze(store, manifest)
+    manifest.close()
+
+    assert n2 == 0
+    assert calls == [], "is_final かつ bronze 既存の月は ZIP を再展開しないはず"
+
+    # スキップしても既存の bronze データ自体はそのまま読める
+    frames = refresh.build_silver_frames(store)
+    assert not frames["race"].empty
+
+
+def test_run_bronze_still_reprocesses_non_final_months_every_time(tmp_path):
+    """is_final=False（未確定・直近）の月は bronze が既にあっても毎回展開し直す。
+
+    NAR 側の事後訂正（降着・失格など、設計書 §2.1 第三の経路）を拾うため、
+    確定前の月にキャッシュを効かせてはいけない。
+    """
+    from nar.io.store import Store
+    from nar.io.manifest import Manifest, Record
+
+    store = Store(f"file://{tmp_path}")
+    store.ensure_layout()
+    manifest = Manifest(store.path("meta", "manifest.duckdb"))
+    raw_bytes = FIXTURE.read_bytes()
+    path = store.write_atomic(raw_bytes, "raw", "monthly", "race", "ym=2026-07",
+                              "202607_race.zip")
+    manifest.upsert(Record(file_key="monthly/race/2026-07", url="fixture://golden",
+                           fetched_at=dt.now(), http_status=200,
+                           content_length=len(raw_bytes), sha256="fixturehash",
+                           raw_path=path, status="ok", is_final=False))
+
+    assert refresh.run_bronze(store, manifest) > 0
+    n2 = refresh.run_bronze(store, manifest)
+    manifest.close()
+
+    assert n2 > 0, "未確定の月は bronze が既にあっても再展開されるはず"
+
+
 # ---------------------------------------------------------------- load_history
 @pytest.fixture(scope="module")
 def golden_silver_frames() -> dict[str, pd.DataFrame]:
@@ -213,6 +286,8 @@ def test_daily_refresh_merges_and_persists_state_on_success(tmp_path, wh, clock,
         "成功時は manifest を永続化先へ書き戻すはず")
     assert list((tmp_path / "persist" / "raw").rglob("*.zip")), (
         "成功時は raw ZIP を永続化先へ書き戻すはず")
+    assert list((tmp_path / "persist" / "bronze").rglob("*.parquet")), (
+        "成功時は bronze も永続化先へ書き戻すはず（確定月キャッシュの前提）")
 
 
 def test_daily_refresh_second_run_reuses_persisted_manifest(tmp_path, wh, clock, monkeypatch):
@@ -247,6 +322,8 @@ def test_daily_refresh_does_not_persist_state_on_failure(tmp_path, wh, clock, mo
 
     assert not (tmp_path / "persist" / "meta" / "manifest.duckdb").exists(), (
         "失敗時に manifest を永続化先へ書き戻してはいけません")
+    assert not (tmp_path / "persist" / "bronze").exists(), (
+        "失敗時に bronze を永続化先へ書き戻してはいけません")
 
 
 def test_main_requires_ingest_store_env_var(monkeypatch):

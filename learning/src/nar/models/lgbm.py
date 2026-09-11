@@ -15,8 +15,25 @@ import pandas as pd
 from ..eval.metrics import race_softmax
 
 
-def graded_labels(finish_pos: np.ndarray) -> np.ndarray:
-    """{0,1,2,3}。同着は同じ着順値を持つので同じラベルになる（MD-09 の例外処理）。
+# ラベルの段階数。設計書 §8.2 / §13.1-3。
+# 3 = 1着3 / 2着2 / 3着1 / その他0（従来の既定）
+# 5 = 1着5 …… 5着1 / 6着以下0（Research.md §2.2 の提案）
+# どちらが良いかは頭数分布に依存するので固定せず HPO で選ばせる。NAR は少頭数
+# 開催が多く、段階を増やすと下位グレードが「実質全馬」になって信号が薄まりうる。
+LABEL_GRADES = (3, 5)
+
+
+def label_gain_for(grades: int) -> list[float]:
+    """LightGBM の label_gain。2^rel − 1（NDCG の既定と同じ形）。
+
+    長さは最大ラベル+1 でなければならず、足りないと LightGBM が
+    「label_gain has 4 elements, but max label is 5」で落ちる。
+    """
+    return [float(2 ** i - 1) for i in range(grades + 1)]
+
+
+def graded_labels(finish_pos: np.ndarray, grades: int = 3) -> np.ndarray:
+    """{0..grades}。同着は同じ着順値を持つので同じラベルになる（MD-09 の例外処理）。
 
     着順が NULL の行（取消・除外で走っていない馬）は受け取らない。黙って 0 に
     倒すと「走っていない馬 = 4着以下」として学習してしまう。float の NaN を
@@ -24,12 +41,14 @@ def graded_labels(finish_pos: np.ndarray) -> np.ndarray:
     「label should be int type (met -9223372036854775808)」で落ちる。
     落ちること自体は正しいので、原因が分かるところで止める。
     """
+    if grades not in LABEL_GRADES:
+        raise ValueError(f"grades は {LABEL_GRADES} のいずれかにしてください（受領: {grades}）")
     pos = np.asarray(finish_pos, dtype=float)
     if np.isnan(pos).any():
         raise ValueError(
             f"着順が NULL の行が {int(np.isnan(pos).sum())} 件あります。"
             "pipeline.trainable() を通して未出走の馬を除いてください。")
-    return np.clip(4 - pos, 0, 3).astype(int)
+    return np.clip(grades + 1 - pos, 0, grades).astype(int)
 
 
 def group_sizes(df: pd.DataFrame, race_col: str = "race_id") -> np.ndarray:
@@ -49,12 +68,18 @@ def group_sizes(df: pd.DataFrame, race_col: str = "race_id") -> np.ndarray:
 
 
 class LgbmRanker:
-    def __init__(self, params: dict | None = None, num_boost_round: int = 300) -> None:
+    def __init__(self, params: dict | None = None, num_boost_round: int = 300,
+                 label_grades: int = 3) -> None:
+        # `_label_grades` は HPO 側から params に混ぜて渡ってくる。LightGBM は
+        # 知らないキーを警告付きで無視するだけなので、ここで確実に抜いておく。
+        params = dict(params or {})
+        label_grades = int(params.pop("_label_grades", label_grades))
+        self.label_grades = label_grades
         self.params = {
             "objective": "lambdarank",
             "metric": "ndcg",
             "ndcg_eval_at": [1, 3],
-            "label_gain": [0, 1, 3, 7],
+            "label_gain": label_gain_for(label_grades),
             "learning_rate": 0.05,
             "num_leaves": 31,
             "min_data_in_leaf": 50,
@@ -65,7 +90,7 @@ class LgbmRanker:
             "seed": 0,
             "deterministic": True,
             "force_row_wise": True,
-            **(params or {}),
+            **params,
         }
         self.num_boost_round = num_boost_round
         self.booster = None
@@ -80,7 +105,8 @@ class LgbmRanker:
         if groups.sum() != len(df):
             raise ValueError("group の総和が学習行数と一致しません（MD-07）")
         ds = lgb.Dataset(
-            df[feature_cols], label=graded_labels(df[pos_col]), group=groups,
+            df[feature_cols], label=graded_labels(df[pos_col], self.label_grades),
+            group=groups,
             feature_name=self.feature_names, free_raw_data=False,
         )
         self.booster = lgb.train(self.params, ds, num_boost_round=self.num_boost_round)

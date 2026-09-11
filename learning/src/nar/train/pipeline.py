@@ -272,7 +272,7 @@ def _tune(name, fold, feat, cols, cfg: RunConfig, ccfg: CVConfig, sink: dict) ->
 
 
 def _defaults(name: str) -> dict:
-    return {"clogit": {"l2": 1e-3}, "lgbm": {"_num_boost_round": 300},
+    return {"clogit": {"l2": 1e-3}, "lgbm": {"_num_boost_round": 300, "_label_grades": 3},
             "tabm": {}, "bayes": {}}.get(name, {})
 
 

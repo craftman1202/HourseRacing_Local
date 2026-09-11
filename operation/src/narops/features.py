@@ -31,6 +31,26 @@ ID_COLUMNS = ("race_id", "horse_no", "horse_sk", "jockey_sk", "trainer_sk", "sir
               "race_date", "start_ts", "baba_code", "finish_pos", "is_win")
 
 
+def _normalize_cache_slice(df: pd.DataFrame) -> pd.DataFrame:
+    """`entity_cache` から切り出した断片を、ライブクエリ結果と同じ dtype に揃える。
+
+    `entity_cache` は `narops.refresh._to_bq_payload` を経由していれば
+    `start_ts` は既に naive UTC のはずだが、呼び出し側がそれを経由せず
+    tz-aware なフレームを直接渡した場合に備えて、ここでも同じ変換を
+    かけ直す（防御的）。揃えておかないと、この後 `pd.concat` で
+    ライブクエリ結果（`wh.query()`。常に naive datetime64）と混ざったときに
+    列が object dtype になり、`pd.to_datetime` が一部の行を静かに NaT へ
+    落とす（confirmed 2026-09-11、equivalence テストで再現・特定）。
+    """
+    out = df.reset_index(drop=True).copy()
+    if "start_ts" in out.columns and len(out):
+        ts = pd.to_datetime(out["start_ts"], utc=True, errors="coerce")
+        out["start_ts"] = ts.dt.tz_convert("UTC").dt.tz_localize(None)
+    if "race_date" in out.columns and len(out):
+        out["race_date"] = pd.to_datetime(out["race_date"])
+    return out
+
+
 @dataclass
 class FeatureResult:
     frame: pd.DataFrame
@@ -44,7 +64,8 @@ def history_before(wh: Warehouse, as_of_ts: datetime, lookback_days: int,
                    max_bytes_billed: int | None = None,
                    card: pd.DataFrame | None = None,
                    career_from: date | None = None,
-                   course: tuple[int, float] | None = None) -> pd.DataFrame:
+                   course: tuple[int, float] | None = None,
+                   entity_cache: str | None = None) -> pd.DataFrame:
     """発走時刻より厳密に前の履歴。
 
     `<` であって `<=` ではない。同時刻の別レースを含めると、同日同時刻に走る
@@ -70,11 +91,50 @@ def history_before(wh: Warehouse, as_of_ts: datetime, lookback_days: int,
     崩し、10万行のクエリが数十分たっても返らなくなる（2条件までは 0.5 秒）。
     条件を2つに抑えた複数クエリに分け、発走時刻での厳密な絞り込みは
     pandas 側で行う。分けても意味は変わらず、実測で合計 1.6 秒に収まる。
+
+    `entity_cache`（`narops.refresh.read_entity_cache` が返す**ローカルの
+    parquet ファイルパス**）を渡すと、馬・騎手・調教師・種牡馬の**全キャリア**
+    クエリ（下限日付を付けられないため実質フルスキャンになる）を BigQuery に
+    投げず、そのファイルを `narops.refresh.query_entity_cache`（pyarrow の
+    フィルタ pushdown）で絞り込んで代用する（2026-09-11のコスト最適化、
+    本番実測で1日150〜275GBのスキャンをほぼゼロにした。
+    docs/Design_Operation.md §2.5）。`entry_result_live`（当日ぶん）は
+    キャッシュの対象外で、常に BigQuery から取得する — 当日の先行レース結果を
+    反映しなければならないため（3.2で言う日内更新の対象そのもの）。
+    `entity_cache=None`（既定）なら従来どおり全クエリを BigQuery に投げる。
+    キャッシュは高速化・コスト最適化のみが目的で、無くても・古くても
+    正しさは壊れない（呼び出し側がその日のファイルを見つけられなければ
+    None を渡すだけでよい）。
+
+    **DataFrame ではなくファイルパスを受け取る**のは、2026-09-11 の本番障害
+    （`nar-ops` の OOM Kill）の直接の教訓。480万行を丸ごと pandas 化すると
+    列を絞っても 5GB を超える。ファイルパスのまま渡し、実際の絞り込みは
+    `query_entity_cache` が pyarrow のネイティブ表現の上で行うことで、
+    メモリに残るのは一致した数百行だけになる。
     """
     as_of = to_utc(as_of_ts)
     naive = as_of.replace(tzinfo=None)
     start_date = (as_of - pd.Timedelta(days=lookback_days)).date()
     upto = as_of.date()
+
+    def query_live(where: str, params: list) -> pd.DataFrame:
+        return wh.query(f"SELECT * FROM entry_result_live WHERE {where}", params,
+                        max_bytes_billed=max_bytes_billed, allow_full_scan=True)
+
+    def combine(final: pd.DataFrame, live: pd.DataFrame) -> pd.DataFrame:
+        """確定層とライブ層の断片を合成する。
+
+        両層は同じレースについて同じキー列を持つので、同一の述語で引いた
+        断片どうしで race_id を突き合わせれば、「確定層にあるレースは
+        ライブ層を捨てる」を正しく再現できる（意味は entry_history ビューと
+        同じ。ビュー自体を経由しない理由は run() の元 docstring 参照）。
+        """
+        if len(live):
+            live = live[~live["race_id"].isin(set(final["race_id"]))]
+        cols = [c for c in final.columns if c in live.columns] or list(final.columns)
+        parts = [f for f in (final[cols], live[cols] if len(live) else None)
+                 if f is not None and len(f)]
+        return pd.concat(parts, ignore_index=True) if parts else final[cols]
 
     def run(where: str, params: list) -> pd.DataFrame:
         """確定層とライブ層を別々に引いて、pandas 側で二層を合成する。
@@ -84,21 +144,23 @@ def history_before(wh: Warehouse, as_of_ts: datetime, lookback_days: int,
         で、`IN (...)` フィルタと組み合わせて 10 万行規模を返させると、
         DuckDB の実行計画が崩れて数十分たっても返らなくなる
         （同じ述語を基底テーブルに当てれば 0.5 秒）。
-
-        意味はビューと同じ。両層は同じレースについて同じキー列を持つので、
-        同一の述語で引いた断片どうしで race_id を突き合わせれば、
-        「確定層にあるレースはライブ層を捨てる」を正しく再現できる。
         """
         final = wh.query(f"SELECT * FROM entry_result_final WHERE {where}", params,
                          max_bytes_billed=max_bytes_billed, allow_full_scan=True)
-        live = wh.query(f"SELECT * FROM entry_result_live WHERE {where}", params,
-                        max_bytes_billed=max_bytes_billed, allow_full_scan=True)
-        if len(live):
-            live = live[~live["race_id"].isin(set(final["race_id"]))]
-        cols = [c for c in final.columns if c in live.columns] or list(final.columns)
-        parts = [f for f in (final[cols], live[cols] if len(live) else None)
-                 if f is not None and len(f)]
-        return pd.concat(parts, ignore_index=True) if parts else final[cols]
+        return combine(final, query_live(where, params))
+
+    def run_career(col: str, values: list[str]) -> pd.DataFrame:
+        """全キャリア取得。`entity_cache` があれば確定層への問い合わせを省く。"""
+        where = f"race_date <= ? AND {col} IN ({', '.join('?' for _ in values)})"
+        params: list = [upto, *values]
+        if entity_cache is not None:
+            from .refresh import query_entity_cache
+
+            final = _normalize_cache_slice(query_entity_cache(entity_cache, col, values, upto))
+        else:
+            final = wh.query(f"SELECT * FROM entry_result_final WHERE {where}", params,
+                             max_bytes_billed=max_bytes_billed, allow_full_scan=True)
+        return combine(final, query_live(where, params))
 
     frames: list[pd.DataFrame] = []
     if card is None or card.empty:
@@ -108,9 +170,7 @@ def history_before(wh: Warehouse, as_of_ts: datetime, lookback_days: int,
             values = _key_values(card, col)
             if not values:
                 continue
-            placeholders = ", ".join("?" for _ in values)
-            frames.append(run(f"race_date <= ? AND {col} IN ({placeholders})",
-                              [upto, *values]))
+            frames.append(run_career(col, values))
         frames.append(run("race_date >= ? AND race_date <= ?", [start_date, upto]))
 
     raw = (pd.concat(frames, ignore_index=True) if frames
@@ -144,10 +204,16 @@ def build_for_race(
     manifest: Manifest,
     feature_config,
     max_bytes_billed: int | None = None,
+    entity_cache: str | None = None,
 ) -> FeatureResult:
     """1レース分の as-of 特徴量を作る。
 
     entry_card は当日ファイル由来の出馬表（結果列を含まない）。
+
+    `entity_cache` は `history_before` へそのまま渡すだけ（`narops.refresh`
+    の entity キャッシュの**ローカルファイルパス**。呼び出し元
+    `service.py::infer_endpoint` が `Services.entity_cache_for()` 経由で
+    読んで渡す）。None なら従来どおり全クエリを BigQuery に投げる。
     """
     from nar.features.builder import build as build_features
 
@@ -163,7 +229,7 @@ def build_for_race(
     assert_prerace(card)
 
     history = history_before(wh, as_of_ts, manifest.lookback_days, max_bytes_billed,
-                             card=card)
+                             card=card, entity_cache=entity_cache)
     # `src` は二層のどちらから来たかを示す運用側の列。学習側のビルダーは知らないので
     # ここで落とす。残すと対象レース行との列構成が食い違う。
     history = history.drop(columns=[c for c in ("src",) if c in history.columns])

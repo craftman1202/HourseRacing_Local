@@ -297,11 +297,43 @@ def test_pool_estimate_is_conservative():
 
 def test_stake_never_exceeds_per_race_cap(features, models, manifests, at_window,
                                           cfg, odds):
+    """上限は1頭ごとではなく**レース合計**に掛かること。
+
+    単勝のみの現状では、Σp=1 かつ 1/4 Kelly なのでレース合計は
+    0.25 × max_bet_per_race（¥750）が上界で、この不変条件は自然に満たされる。
+    実際に効くのは Design_Operation.md §3.5 の同時ポートフォリオ最適化で
+    1レースに複数券種が並んだときなので、**先に不変条件として固定しておく**。
+    """
     res = run_inference(race_id="R", features=features, models=models,
                         manifests=manifests, weights={"lgbm": 0.5, "tabm": 0.5},
                         temperature=1.0, clock=at_window, cfg=cfg, odds=odds)
     assert (res.frame["stake_yen"] <= cfg.max_bet_per_race).all()
+    assert res.frame["stake_yen"].sum() <= cfg.max_bet_per_race, (
+        f"レース合計 {res.frame['stake_yen'].sum()} 円が1レース上限 "
+        f"{cfg.max_bet_per_race} 円を超えています")
     assert (res.frame["stake_yen"] % 100 == 0).all(), "100円単位でない賭け額があります"
+
+
+def test_per_race_cap_binds_when_several_horses_qualify(features, models, manifests,
+                                                       at_window, cfg):
+    """複数頭が同時に推奨される状況でもレース合計の上限を超えないこと。
+
+    既定のフィクスチャは1頭しか賭け対象にならないので、複数頭が並ぶ経路を
+    別に押さえる。単勝のみなら理論上界（¥750）のほうが先に効くため、この
+    テストは上限式そのものの differentiator ではなく不変条件の確認である。
+    差が出るのは複数券種を同時に建てるようになってから（§3.5）。
+    """
+    # 全頭の EV が閾値を大きく超えるオッズ。頭数倍の上限だと合計が
+    # max_bet_per_race を超え、合計上限なら超えない。
+    generous = pd.Series([30.0] * N)
+    res = run_inference(race_id="R", features=features, models=models,
+                        manifests=manifests, weights={"lgbm": 0.5, "tabm": 0.5},
+                        temperature=1.0, clock=at_window, cfg=cfg, odds=generous)
+    staked = (res.frame["stake_yen"] > 0).sum()
+    assert staked >= 2, f"前提が崩れています（賭け対象 {staked} 頭）"
+    assert res.frame["stake_yen"].sum() <= cfg.max_bet_per_race, (
+        f"{staked} 頭で合計 {res.frame['stake_yen'].sum()} 円。"
+        f"1レース上限 {cfg.max_bet_per_race} 円を超えています")
 
 
 def test_day_budget_is_respected(features, models, manifests, at_window, cfg, odds):

@@ -33,6 +33,10 @@ class OosResult:
     n_rows: int
     n_races: int
     period: tuple[str, str]
+    # 行単位の予測。集計指標だけだとロック区間そのものの較正（リライアビリティ図・
+    # 人気帯別の較正誤差）が描けない。OOS の開封は1回きりなので、そのとき出た
+    # 予測は必ず残す。走らせ直すには再開封が要る（＝開封回数の意味が薄れる）。
+    predictions: pd.DataFrame | None = None
 
 
 def load_release(final_dir: str | Path) -> dict:
@@ -127,6 +131,20 @@ def evaluate(feat: pd.DataFrame, ccfg: CVConfig, final_dir: str | Path,
 
     tw = guards.check(oos_top1=out["ensemble"]["top1"],
                       oos_nll=out["ensemble"]["race_nll"], cv_nll=cv_nll)
+
+    # oof_predictions.parquet と同じ形。較正ノートブックが両方を同じコードで
+    # 読めるよう、列名（race_id / horse_no / is_win / finish_pos / モデル名）を揃える。
+    preds = pd.DataFrame({
+        "race_id": rid, "horse_no": scored["horse_no"].to_numpy(),
+        "race_date": scored["race_date"].to_numpy(),
+        "is_win": y, "finish_pos": pos,
+    })
+    for name, p in per_model.items():
+        preds[name] = p
+    preds["ensemble"] = ens
+    if "odds_win" in scored.columns:
+        preds["odds_win"] = scored["odds_win"].to_numpy()
+
     return OosResult(out, {k: float(v) for k, v in (weights or {}).items()},
                      tw, len(scored), int(pd.Series(rid).nunique()),
-                     (str(lo.date()), str(hi.date())))
+                     (str(lo.date()), str(hi.date())), predictions=preds)

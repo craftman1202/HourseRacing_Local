@@ -48,3 +48,4 @@ learning/warehouse/
 # Misc local outputs
 .DS_Store
 *.log
+*.png

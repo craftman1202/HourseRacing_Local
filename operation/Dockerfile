@@ -42,6 +42,9 @@ COPY learning/conf /app/learning/conf
 COPY learning/conf_banei /app/learning/conf_banei
 COPY operation/src /app/operation/src
 COPY operation/conf /app/operation/conf
+# 一度きりの運用スクリプト（例: scripts/finalize_history_backlog.py）を
+# `gcloud run jobs execute --args=...` で実行できるようにする
+COPY operation/scripts /app/operation/scripts
 
 # max_lookback_days のような学習側の設定は nar.config がパッケージ相対で読む。
 # 運用側と学習側の両方を import パスに載せる。

@@ -21,7 +21,7 @@ from ..transform.prerace import (
 from . import banei, declared
 from .banei import BANEI_FEATURES
 from .declared import DECLARED_FEATURES
-from .shrinkage import sql_shrink
+from .shrinkage import sql_shrink, sql_wilson_lower
 
 log = logging.getLogger(__name__)
 
@@ -29,8 +29,10 @@ log = logging.getLogger(__name__)
 ASOF_FEATURES = (
     "h_starts_prior", "h_wins_prior", "h_winrate_prior", "h_top3rate_prior",
     "h_si_last3", "h_days_since_prev", "h_best_si_prior", "is_first_start",
+    "h_pace_bal_last3",
     "j_starts_prior", "j_winrate_shrunk",
     "t_starts_prior", "t_winrate_shrunk",
+    "jt_starts_prior", "jt_winrate_wilson",
     "s_starts_prior", "s_winrate_shrunk",
     "field_size", "draw_rel", "distance", "class_level", "log_prize",
 )
@@ -48,6 +50,9 @@ BANEI_DROPPED = (
     "d_turn_starts", "d_turn_winrate",
     "d_dist_starts", "d_dist_winrate",
     "d_best_speed", "d_best_speed_good", "d_best_speed_penalty",
+    # ばんえいは 200m 一本で「上がり3F」も無い。ペースバランスは定義上必ず
+    # NULL になるので、全行 NaN の列を契約に載せない（§13.1-2）。
+    "h_pace_bal_last3",
 )
 
 
@@ -79,6 +84,40 @@ _PRIOR_FRAME = "GROUPS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING"
 # 標準化の基準統計量を as-of で取る以上、場×距離の最初の数走は「3件から推定した
 # 標準偏差」で割ることになり、速度指数が桁で暴れる。基準が固まるまでは NULL を返す。
 MIN_PRIOR_FOR_SPEED_INDEX = 100
+
+# 上がり3F の妥当範囲（秒）。実データには 2.5 や 99.0 といった明らかな入力異常が
+# 混じっており、そのままだとペースバランスが桁で暴れる。範囲外は NULL に倒す。
+LAST3F_MIN_SEC, LAST3F_MAX_SEC = 30.0, 60.0
+# 前半区間の距離。上がり3F = 600m なので、これ以下の距離では定義できない。
+LAST3F_METERS = 600.0
+
+
+def _pace_balance_sql(last3f: str, time_sec: str, distance: str) -> str:
+    """1走ぶんの前後半バランス（秒 / 200m）。負なら前傾＝逃げ・先行型。
+
+    Research.md §3.1 の Pace Balance（前半3F − 後半3F）を、NAR で実際に取れる列に
+    合わせて定義し直したもの。地方の月次ファイルにハロンタイムは無く、馬ごとに
+    取れるのは「上がり3F」だけなので、前半は差分（走破タイム − 上がり3F）で作る。
+    距離がまちまちなので 200m あたりに正規化しないと距離間で比較できない。
+
+        前半ペース = (走破タイム − 上がり3F) / ((距離 − 600) / 200)
+        後半ペース = 上がり3F / 3
+        pace_balance = 前半ペース − 後半ペース
+
+    **当該レースの値は特徴量にしない。** これは post-race 情報で、§5 の
+    POST_RACE_COLS で当該レース行からは物理的に落としている。ここで使うのは
+    LAG で引いた**過去走**の値だけで、対象レース発走時点では既に確定している
+    （設計書 §6 / §13.1-2）。
+    """
+    l3 = f"TRY_CAST({last3f} AS DOUBLE)"
+    t = f"TRY_CAST({time_sec} AS DOUBLE)"
+    d = f"TRY_CAST({distance} AS DOUBLE)"
+    early = f"(({t}) - ({l3})) / NULLIF((({d}) - {LAST3F_METERS}) / 200.0, 0)"
+    return (
+        f"CASE WHEN {l3} BETWEEN {LAST3F_MIN_SEC} AND {LAST3F_MAX_SEC} "
+        f"AND {d} > {LAST3F_METERS} AND {t} > {l3} "
+        f"THEN ({early}) - ({l3}) / 3.0 END"
+    )
 
 
 def _recent_mean_sql(col: str, n: int, window: str = "w2") -> str:
@@ -207,6 +246,13 @@ def build(
             # 履歴に平地が混ざると、騎手・調教師の勝率が別競技の成績で薄まる。
             entry = entry[entry["baba_code"].isin(cfg.include_baba_codes)]
         entry = entry.copy()
+        # 特徴量の列集合はデータ依存にしない（SK-03）。`last3f` を持たない入力
+        # （合成データ、履歴に上がり3F を持たない古い運用DB）でも列だけは作り、
+        # ペースバランスは全行 NULL として扱う。ここで分岐させないと、
+        # 入力しだいで gold の列が増減して feature_spec が一致しなくなる。
+        if "last3f" not in entry.columns:
+            log.warning("last3f がありません。h_pace_bal_last3 は全行 NULL になります。")
+            entry["last3f"] = np.nan
         con.register("entry_raw", entry)
         con.register("race_raw", race)
         con.register("entry_si_raw", speed_index(entry))
@@ -228,7 +274,10 @@ def build(
           SELECT *,
             -- 頭数はレース表の `頭数` 列を使わない。出走取消の反映時点が不明で、
             -- 学習時と推論時で意味が変わる。出馬表の行数なら両方で同じに数えられる。
-            COUNT(*) OVER (PARTITION BY race_id) AS n_runners
+            COUNT(*) OVER (PARTITION BY race_id) AS n_runners,
+            -- その走のペースバランス。行ごとの算術で蓄積が無いので決定的。
+            -- 特徴量になるのは LAG で引いた過去走ぶんだけ（下の horse CTE）。
+            {_pace_balance_sql("last3f", "time_sec", "distance")} AS pace_balance
           FROM entry_si
         ),
         horse AS (
@@ -238,6 +287,7 @@ def build(
             AVG(is_win)   OVER w                       AS h_winrate_prior,
             AVG(CASE WHEN finish_pos <= 3 THEN 1 ELSE 0 END) OVER w AS h_top3rate_prior,
             {_recent_mean_sql("speed_index", n_recent)} AS h_si_last3,
+            {_recent_mean_sql("pace_balance", n_recent)} AS h_pace_bal_last3,
             MAX(speed_index) OVER w                    AS h_best_si_prior,
             DATE_DIFF('day', LAG(race_date) OVER w2, race_date) AS h_days_since_prev
           FROM e
@@ -258,6 +308,20 @@ def build(
           FROM e
           WINDOW wt AS (PARTITION BY trainer_sk ORDER BY {_PRIOR_ORDER} {_PRIOR_FRAME})
         ),
+        jt AS (
+          -- 騎手×調教師の相乗効果（§13.1-1 / Research.md §3.1）。
+          -- 窓は騎手・調教師の単体特徴量と同じく全キャリア。研究報告書は「直近2年」を
+          -- 提案しているが、有界の窓を入れると conf/cv.yaml の embargo が
+          -- max_lookback_days = 730 日に引き上がり（CV-04 で自動導出される）、
+          -- fold ごとに学習期間を2年削ることになる。単体特徴量が既に無界である以上、
+          -- ここだけ有界にする理由も無い。不確実性は窓ではなく Wilson 下限で扱う。
+          SELECT race_id, horse_no,
+            COUNT(*) OVER wjt                AS jt_starts_prior,
+            COALESCE(SUM(is_win) OVER wjt,0) AS jt_wins_prior
+          FROM e
+          WINDOW wjt AS (PARTITION BY jockey_sk, trainer_sk
+                         ORDER BY {_PRIOR_ORDER} {_PRIOR_FRAME})
+        ),
         sire AS (
           SELECT race_id, horse_no,
             COUNT(*) OVER ws                AS s_starts_prior,
@@ -274,12 +338,16 @@ def build(
           h.h_starts_prior, h.h_wins_prior, h.h_winrate_prior, h.h_top3rate_prior,
           h.h_si_last3, h.h_best_si_prior, h.h_days_since_prev,
           CASE WHEN h.h_starts_prior = 0 THEN 1 ELSE 0 END AS is_first_start,
+          h.h_pace_bal_last3,
           j.j_starts_prior,
           {sql_shrink("j.j_wins_prior", "j.j_starts_prior", prior, a["alpha_jockey"])}
             AS j_winrate_shrunk,
           t.t_starts_prior,
           {sql_shrink("t.t_wins_prior", "t.t_starts_prior", prior, a["alpha_trainer"])}
             AS t_winrate_shrunk,
+          jt.jt_starts_prior,
+          {sql_wilson_lower("jt.jt_wins_prior", "jt.jt_starts_prior")}
+            AS jt_winrate_wilson,
           s.s_starts_prior,
           {sql_shrink("s.s_wins_prior", "s.s_starts_prior", prior, a["alpha_sire"])}
             AS s_winrate_shrunk,
@@ -290,6 +358,7 @@ def build(
         JOIN horse   h USING (race_id, horse_no)
         JOIN jockey  j USING (race_id, horse_no)
         JOIN trainer t USING (race_id, horse_no)
+        JOIN jt      jt USING (race_id, horse_no)
         JOIN sire    s USING (race_id, horse_no)
         JOIN race_raw r USING (race_id)
         ORDER BY {", ".join("e." + c for c in _ORDER.split(", "))}
@@ -301,8 +370,10 @@ def build(
 
     # 初出走は勝率を 0 ではなく NULL にする。0 は「勝てない馬」を意味してしまう（FE-02）
     first = out["is_first_start"] == 1
-    for c in ("h_winrate_prior", "h_top3rate_prior", "h_si_last3", "h_best_si_prior"):
-        out.loc[first, c] = pd.NA
+    for c in ("h_winrate_prior", "h_top3rate_prior", "h_si_last3", "h_best_si_prior",
+              "h_pace_bal_last3"):
+        if c in out.columns:
+            out.loc[first, c] = pd.NA
 
     # 申告値由来の特徴量。時点性が確定した列だけを使う。
     # 判定を通していない列が混ざれば LK-04 がここで止める。

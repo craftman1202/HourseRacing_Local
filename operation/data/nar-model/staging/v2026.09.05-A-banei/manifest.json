@@ -1,0 +1,100 @@
+{
+  "model_id": "v2026.09.05-A-banei",
+  "dataset_version": "b49cf81f624593e204d6373a63af8a45c90f02893416f4cd1ba188a6336c9b06",
+  "train_period": {
+    "start": "1998-01-01",
+    "end": "2023-08-04"
+  },
+  "feature_spec_hash": "a6715f5eccfbdd2c9650d15f5a144905e45624ff9806f662d0cca6d1eb057e13",
+  "model_sha256": {
+    "clogit_beta.json": "329409f8b75e45e15fccf7d6721fddf555ddb77a4adca8c95aef75a91bb68722",
+    "feature_spec.json": "140d2f25084048f197dc8ae5a7d7a13589d337f36d43145ebf12f03464101696",
+    "lgbm_rank.txt": "da3c7b1236ff89121d56defde7f5a6920aff09c0bc0e38b25007e96cf0599f18",
+    "standardizer.json": "26a4e6c9cddf67b31132843c7484e37fb08918f2e6c62b3255bbfda00b9fed90",
+    "tabm.onnx": "d1a4327a0232227e0a60d886a0b2159a0a8329c3b3783a93eb9dc8c9f0436b58",
+    "tabm.onnx.data": "63046614e02ffa3073ae3f8cffe8ecf8deeff3e467e0ae1e4d2e2d252fbaa011"
+  },
+  "oos_metrics": {
+    "race_nll": 2.0102588821482126,
+    "uniform_nll": 2.218936711863158,
+    "brier": 0.8395000152806257,
+    "top1": 0.2592090395480226,
+    "top3": 0.4781920903954802,
+    "ndcg@3": 0.4772008980209118,
+    "spearman": 0.30963414617780244,
+    "ece": 0.0062967378251360985
+  },
+  "lookback_days": 180,
+  "track": "A",
+  "calibration": {
+    "temperature": 0.9533232711096629
+  },
+  "git_commit": "",
+  "created_at": "2026-09-05T13:55:58",
+  "ensemble_weights": {
+    "clogit": 4.256546801501996e-18,
+    "lgbm": 0.22107571188664724,
+    "tabm": 0.7789242881133527
+  },
+  "feature_spec": {
+    "names": [
+      "h_si_last3",
+      "h_top3rate_prior",
+      "d_pair_winrate",
+      "j_winrate_shrunk",
+      "d_all_winrate",
+      "b_body_weight",
+      "d_track_winrate",
+      "b_body_weight_diff",
+      "b_load_ratio",
+      "d_track_starts",
+      "h_days_since_prev",
+      "h_wins_prior",
+      "b_weight_carried",
+      "h_starts_prior",
+      "d_all_starts",
+      "b_age",
+      "class_level"
+    ],
+    "dtypes": {
+      "h_si_last3": "float64",
+      "h_top3rate_prior": "float64",
+      "d_pair_winrate": "float64",
+      "j_winrate_shrunk": "float64",
+      "d_all_winrate": "float64",
+      "b_body_weight": "float64",
+      "d_track_winrate": "float64",
+      "b_body_weight_diff": "float64",
+      "b_load_ratio": "float64",
+      "d_track_starts": "float64",
+      "h_days_since_prev": "float64",
+      "h_wins_prior": "float64",
+      "b_weight_carried": "float64",
+      "h_starts_prior": "float64",
+      "d_all_starts": "float64",
+      "b_age": "float64",
+      "class_level": "float64"
+    },
+    "missing": {
+      "h_si_last3": "nan",
+      "h_top3rate_prior": "nan",
+      "d_pair_winrate": "nan",
+      "j_winrate_shrunk": "nan",
+      "d_all_winrate": "nan",
+      "b_body_weight": "nan",
+      "d_track_winrate": "nan",
+      "b_body_weight_diff": "nan",
+      "b_load_ratio": "nan",
+      "d_track_starts": "nan",
+      "h_days_since_prev": "nan",
+      "h_wins_prior": "nan",
+      "b_weight_carried": "nan",
+      "h_starts_prior": "nan",
+      "d_all_starts": "nan",
+      "b_age": "nan",
+      "class_level": "nan"
+    }
+  },
+  "purpose": "evaluation",
+  "oos_evaluated_on": "2023-08-04"
+}

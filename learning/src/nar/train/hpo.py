@@ -18,6 +18,7 @@ import optuna
 import pandas as pd
 
 from ..eval.metrics import race_nll
+from ..models.lgbm import LABEL_GRADES
 from ..eval.splits import Fold, inner_folds
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -50,6 +51,9 @@ def suggest_lgbm(t: optuna.Trial) -> dict:
         # そのまま実行時間になる（実測 200k 行で約 0.47 秒/ラウンド）。
         # 上限を伸ばすと nested HPO が現実的な時間で終わらないので、ここで抑える。
         "_num_boost_round": t.suggest_int("_num_boost_round", 100, 400, step=50),
+        # ラベルの段階数（設計書 §13.1-3）。3段階（従来）と5段階（Research.md §2.2）を
+        # 探索空間に入れ、どちらが良いかを NLL で決めさせる。決め打ちしない。
+        "_label_grades": t.suggest_categorical("_label_grades", list(LABEL_GRADES)),
     }
 
 

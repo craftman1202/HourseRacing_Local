@@ -52,16 +52,35 @@ class CostEstimate:
         return self.compute() <= target
 
 
-def default_usage(odds_snapshots_per_day: int = 110) -> list[ServiceUsage]:
+def default_usage(odds_snapshots_per_day: int = 110,
+                  refresh_avg_seconds: float = 700) -> list[ServiceUsage]:
     """設計書 §6.1 の想定。
 
     オッズ収集を締切直前帯に絞る調整（起動回数 500 → 約 300/日）を採用した後の値。
     この調整なしでは Cloud Run の無料枠を超えて月 $1.4 が発生する。
+
+    `nar-refresh`（Cloud Run Job、2026-08-29 追加、16Gi・4vCPU、日次1回）は
+    2026-08-28 時点のこの見積もりに一度も入っていなかった。bronze の確定月
+    キャッシュ（`refresh.py` 参照、2026-09-10）を入れる前は毎日全履歴を ZIP から
+    再展開しており、実測で1回あたり13分36秒・14分52秒かかっていた
+    （キャッシュが機能する前提の `is_final` が当時は1件も立っていなかった
+    ため、無キャッシュと同じ挙動だった）。
+
+    `refresh_avg_seconds` の既定値 700 秒は、確定済み月の再展開キャッシュに加え、
+    過去分（1998年〜、約340か月）を一度きりの確定化スイープ
+    （`operation/scripts/finalize_history_backlog.py`）で `is_final=True` に
+    した**後**の実測値（2026-09-10、本番で11分32秒＝692秒を計測、キャッシュ
+    導入前比で約20%減）。残る所要時間の大半は bronze キャッシュの GCS 往復
+    （`sync_dir` が月×表ごとの小さな parquet を個別コピーしている）と、
+    speed_index の全履歴再計算（`build_silver_frames`、これは仕様上削れない）。
+    さらに縮めるには GCS 側の一括コピーへの置き換えが要るが、本セッションの
+    範囲外とした（申し送り、`docs/MaintenanceRunbook.md` §7）。
     """
     return [
         ServiceUsage("nar-ops-infer", 70, 20, 1.0, 1.0),
         ServiceUsage("nar-ops-odds", odds_snapshots_per_day, 8, 1.0, 0.5),
         ServiceUsage("nar-ops-batch", 6, 60, 1.0, 1.0),
+        ServiceUsage("nar-refresh", 1, refresh_avg_seconds, 4.0, 16.0),
         ServiceUsage("nar-api", 100, 0.3, 0.5, 0.5),
         ServiceUsage("nar-web", 67, 0.5, 1.0, 0.5),
     ]

@@ -251,11 +251,25 @@ def _economics(out: pd.DataFrame, cfg: OpsConfig, pool_model: PoolSizeModel | No
     raw_stake = np.where(passes, raw_stake, 0.0)
     out["kelly"] = provisional
 
+    # 上限は「1レースの合計」に掛ける。設計書 §3.3 と Discord の「買い目合計」
+    # 表示はどちらもレース単位の合計を指しており、config の `max_per_race` も
+    # その意味で書かれている。
+    #
+    # 以前は `max_bet_per_race * 頭数` を上限にしていた。ただし**現状これは
+    # 到達しない条件**だった: 単勝のみ・Σp=1 なら Σf* < 1 なので、レース合計は
+    # 0.25（Kelly 係数）× max_bet_per_race = ¥750 が上界で、¥3,000 にすら届かない
+    # （実測でも最大 ¥600）。つまり実害の出ていた不具合ではなく、意味を持たない
+    # 上限式だった。合計に掛け直すのは、式が名前と設計の意味に一致していないと
+    # 次の変更で事故になるため。
+    #
+    # 実際に効き始めるのは Design_Operation.md §3.5 の同時ポートフォリオ最適化を
+    # 入れたときで、1レースに複数券種の買い目が並ぶと Σf* は 1 を超えうる。
+    #
+    # レース合計 → 1日残枠 の順に掛ける。_fit_budget は縮める方向にしか働かない
+    # ので、この順序なら両方の上限を必ず満たす。
+    stake = _fit_budget(stake, cfg.max_bet_per_race)
     if day_budget_remaining is not None:
         stake = _fit_budget(stake, min(day_budget_remaining, cfg.max_bet_per_day))
-    total = stake.sum()
-    if total > cfg.max_bet_per_race * len(stake):
-        stake = _fit_budget(stake, cfg.max_bet_per_race * len(stake))
     out["stake_yen"] = stake.astype(int)
     # 参考額は「EV は基準を満たすが、Kelly 額が最低賭け金（100円）に届かない」
     # ときだけ実額と別の値になる。budget 按分の対象外（実額ではないので

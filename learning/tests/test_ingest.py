@@ -236,6 +236,44 @@ def test_ig16_daily_diff_touches_current_and_previous_month_only(tmp_path):
     assert fetched == ["2026-07", "2026-08"]
 
 
+def test_backfill_daily_refresh_months_override_reaches_old_months(tmp_path, golden_zip):
+    """`backfill(..., daily_refresh_months=...)` を広げると、既定（IG-16）では
+    素通りされる過去月にもリクエストが飛ぶ。
+
+    `nar-refresh` の確定月キャッシュ（`operation/refresh.py`、2026-09-10）を
+    実際に効かせるための一度きりの確定化スイープ
+    （`operation/scripts/finalize_history_backlog.py`）が依存する経路。
+    日次自動更新は既定値（2）のままなので IG-16 の挙動は変わらない。
+    """
+    from nar.ingest.monthly import backfill
+
+    clock = FakeClock()
+    calls: list[str] = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        clock.t += 0.01
+        return httpx.Response(200, content=golden_zip,
+                              headers={"content-type": "application/zip"})
+
+    store = Store(f"file://{tmp_path}")
+    store.ensure_layout()
+    manifest = Manifest(tmp_path / "m.duckdb")
+    # 一括バックフィルで一度取得したきり、日次差分の対象外に落ちた過去月を模す
+    manifest.upsert(Record(file_key="monthly/race/1998-01", sha256="old",
+                           status="ok", is_final=False))
+    today = date(2026, 8, 25)
+
+    with client(handler, clock) as c:
+        backfill(c, store, manifest, "1998-01", "1998-01", today, kind="race")
+    assert calls == [], "既定の daily_refresh_months(=2) では過去月に触れないはず（IG-16）"
+
+    with client(handler, clock) as c:
+        backfill(c, store, manifest, "1998-01", "1998-01", today, kind="race",
+                 daily_refresh_months=400)
+    assert len(calls) == 1, "確定化スイープでは daily_refresh_months を広げて過去月にも触れる"
+
+
 # --------------------------------------------------------------------- SG-01..04
 def test_sg01_expected_column_counts_are_pinned():
     assert EXPECTED_COLUMNS == {"race": 66, "entry": 36, "odds": 10, "payout": 54}

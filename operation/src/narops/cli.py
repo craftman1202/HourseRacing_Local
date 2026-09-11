@@ -28,6 +28,32 @@ from .monitoring import MonitorConfig, check_model_freshness, should_block_deliv
 log = logging.getLogger("narops")
 
 
+def _model_registry(args) -> ModelRegistry:
+    """`--model-root` が local なら local、GCS 環境なら GCS のレジストリを返す。
+
+    2026-09-05 まで、`promote`/`rollback`/`health`/`verify-release` は常に
+    `ModelRegistry(args.model_root, ...)`（ローカルファイル）を返していた。
+    `args.model_root` に `gs://...` を渡しても `Path("gs://...")` になるだけで
+    実際には GCS を触らない。本番の `current` はこれまで
+    `upload-release --set-current`（初回導入のみ通る経路）でしか切り替わった
+    ことがなく、2回目以降の昇格（＝このコードパスを通る昇格）が実際に
+    走ったのはこの日が初めてで、そこで気付いた。
+
+    判定は `_attach_model()`（起動時の読み込み経路）と同じ環境変数
+    `NAROPS_MODEL_BUCKET` の有無に揃える。二重に判定ロジックを持つと
+    「デプロイ済みの Cloud Run は GCS を見ているのに、CLI はローカルを
+    見ている」という今回の食い違いを再発させる。
+    """
+    bucket = os.environ.get("NAROPS_MODEL_BUCKET")
+    if bucket:
+        from .gcp import GcsModelRegistry
+
+        return GcsModelRegistry(bucket=bucket,
+                                project=os.environ.get("NAROPS_PROJECT", ""),
+                                family=args.family)
+    return ModelRegistry(args.model_root, family=args.family)
+
+
 def _warehouse(args) -> Warehouse:
     """`NAROPS_BACKEND=bigquery` なら実 BigQuery に繋ぐ。
 
@@ -369,7 +395,7 @@ def cmd_verify_release(args) -> int:
 def cmd_promote(args) -> int:
     from .release import ShadowMetrics, promote
 
-    reg = ModelRegistry(args.model_root, family=args.family)
+    reg = _model_registry(args)
     shadow = ShadowMetrics(args.shadow_days, args.shadow_nll, args.shadow_ece, 0.0)
     prod = ShadowMetrics(30, args.production_nll, args.production_ece, 0.0)
     promote(reg, args.release, shadow, prod, actor=args.actor, confirmed=args.confirm)

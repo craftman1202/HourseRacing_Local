@@ -71,6 +71,40 @@ python -m narops.cli load-history --silver ../learning/data_real/silver
 絞るだけで、計算範囲は絞らない点に注意（1か月分だけで計算すると場×距離の基準統計量が
 揃わず、ほぼ全行 NaN になる）。
 
+### 1.4 確定層への列追加（スキーマ移行）
+
+特徴量を追加して確定層に新しい列が必要になった場合、`bq update` で列を足すだけでは
+**既存行が NULL のまま**になり、学習時は値があり推論時だけ NULL という train-serving
+skew になる。列追加と既存行の後追い投入は必ずセットで行う。
+
+```bash
+cd operation
+export PYTHONPATH=src:../learning/src
+bq --project_id=sample-335613 update nar_ops.entry_result_final infra/bq/entry_result_final.json
+bq --project_id=sample-335613 update nar_ops.entry_result_live  infra/bq/entry_result_live.json
+python scripts/backfill_last3f.py --silver ../learning/data_real/silver           # 計画
+python scripts/backfill_last3f.py --silver ../learning/data_real/silver --apply   # 実行
+```
+
+`load-history` を全期間で流し直す方法は使えない。`db/merge.py::merge_final` の更新経路は
+変更行を `(race_id, horse_no)` のタプル列挙で DELETE する実装で、日次の訂正（数千行）を
+前提にしている。数百万行の一括更新ではクエリ長上限を超える。列ごとの一度きりの移行は
+`scripts/backfill_last3f.py` と同じ形（ステージング表へロード → 1本の UPDATE）で書く。
+
+順序は **列追加 → 既存行の後追い投入 → コンテナのデプロイ → skew 検証 → `promote`**。
+特に「後追い投入はコンテナのデプロイより前」を守る。理由は2つある。
+
+1. 逆にすると、新モデルが全行 NULL の特徴量を見ながら推論する時間帯ができる。
+2. 新コードを先に入れると、翌朝の `ingest-and-refresh` が「既存行は NULL、投入行は
+   値あり」を**訂正**とみなし、当月・前月の全行（十数万行）を DELETE + INSERT しようと
+   する。`merge_final` の DELETE はタプル列挙なのでクエリ長上限に当たり、日次更新が
+   丸ごと落ちる。先に埋めてあれば差分ゼロで素通りする。
+
+列追加そのものは既存モデルに影響しない。`feature_spec` は**モデルが宣言した列だけ**で
+ハッシュを取るので（`features.feature_spec_of` の `names` 引数）、ビルダーが列を増やしても
+旧リリースの契約ハッシュは変わらない。実際に本番 `v2026.08.28-A` の
+`feature_spec_hash` が新コードでも一致することを確認してから移行すること。
+
 ## 2. モデル学習
 
 ### 2.1 EDA（学習前に必ず）
@@ -171,11 +205,11 @@ Harville 複勝確率の計算（LightGBM・アンサンブルの2モデル分�
 律速する。全モデルに広げると1モデルあたり実測 約85秒（61,513 レース）かかるので、
 むやみに対象モデルを増やさない。
 
-**既知の制約**: このノートブックは walk-forward の OOF（2019-2023）を使っている。
-`evaluate-final` はロック区間（OOS、2024-02〜現在）の**集計指標**しか
-`artifacts/oos_metrics.json` に残さず、行単位の予測を永続化しない。ロック区間そのものの
-較正を見たい場合は `nar.eval.final_oos.evaluate` が行単位の予測を書き出すよう拡張が要る
-（§7 の申し送り事項）。
+このノートブックは walk-forward の OOF（2019-2023）を使う。ロック区間（OOS、
+2024-02〜現在）そのものの較正を見たい場合は `artifacts/oos_predictions.parquet` を読む。
+`evaluate-final` が集計指標（`oos_metrics.json`）と一緒に行単位の予測も書き出すので、
+OOF と同じ列構成（`race_id` / `horse_no` / `is_win` / `finish_pos` / モデル名）で扱える。
+**OOS の開封は1回きり**なので、較正を見るためだけに再開封しないこと。
 
 ### 4.3 本番監視（自動、週次）
 
@@ -301,8 +335,81 @@ $P -m pytest tests/ -m costly -q               # 実 GCP・実課金。月次の
 
 ## 7. 申し送り事項（未対応の改善項目）
 
-- `nar.eval.final_oos.evaluate`（`evaluate-final` の実体）が行単位の予測を保存しない。
-  ロック区間そのもののリライアビリティ図を描けるようにするには、`oof_predictions.parquet`
-  と同じ形式で `oos_predictions.parquet` を書き出す変更が要る。
 - `narops deploy --apply --confirm` は per-service イメージ指定が未実装（§5.3）。
   3サービス構成を Terraform 化する際に合わせて直す。
+- `nar-ops` の `POST /ingest-and-refresh` エンドポイントと、それを 02:40 に叩く
+  旧 Cloud Scheduler ジョブ（`nar-ingest-and-refresh`）が、実処理を `nar-refresh`
+  Job（2026-08-29 追加）に移した後も本番に残っている。実処理をしないまま
+  "0 rows"/"ok" を記録し続けるだけで実害はないが、Scheduler の無料枠3個を
+  無駄に1個消費している（`operation/src/narops/deploy.py` の `SCHEDULE_CRON`
+  からこのエントリを削り、`nar-refresh-daily` の Scheduler/Job 定義を
+  `services.json`/`deploy.py` に正式に取り込むこと。`services.json` の
+  `cloud_run_jobs.nar-refresh._scheduler` に現状の作成コマンドが残してある）。
+- 2026-09-10、コスト最適化として `nar-refresh` Job に bronze の確定月キャッシュを
+  導入し（`operation/src/narops/refresh.py`、`docs/Design_Operation.md` §2.2）、
+  本番へデプロイ・実測検証済み。デプロイ直後の検証で「`is_final` が本番
+  manifest に1件も立っていない」別の不具合（IG-16 の日次窓の外に落ちた過去分は
+  二度目の不変観測を得る機会が永久に無い、という構造的な行き詰まり）が見つかり、
+  一度きりの確定化スイープ（`operation/scripts/finalize_history_backlog.py --apply`、
+  実行23分16秒）で解消した。実測は
+  「キャッシュ未着時 13分36秒・14分52秒」→「スイープ後 11分32秒」（約20%減）。
+  `docs/Design_Operation.md` §6.1・`narops.cost.default_usage()` の
+  `refresh_avg_seconds=700` は実測反映済み。
+  **残っている改善余地**: 実測11分32秒の内訳を見ると、削減の主要因は当初期待した
+  「ZIP 再展開の省略」よりも小さく、残り時間の大半は (a) `sync_dir` が bronze を
+  月×表ごとの小さな parquet ファイル単位で個別に GCS 往復コピーしているオーバー
+  ヘッドと、(b) `build_silver_frames` の全履歴 speed_index 再計算（仕様上削れない）
+  が占める。(a) を `gcloud storage cp -r` 相当の一括コピーや月単位の tar 化に
+  置き換えればさらに縮む可能性があるが、本タスクの範囲では未着手。
+  なお `finalize_history_backlog.py` は一度実行すればよく、`is_final` になった
+  月は以降どこからも再取得されない（毎月・毎年繰り返す必要はない）。
+- 2026-09-11、コスト最適化として entity キャッシュを導入した
+  （`operation/src/narops/refresh.py` の `write_entity_cache`/`read_entity_cache`、
+  `features.py::history_before` の `entity_cache` 引数、`docs/Design_Operation.md`
+  §2.5）。本番実測で `SELECT * FROM entry_result_final`（馬・騎手・調教師・種牡馬の
+  全キャリア取得）が1日 150〜275GB のスキャンになっており（月額 $30 規模）、
+  `entry_result_final` が日次 MERGE でしか更新されない事実を使って、その MERGE
+  直後のコピーを GCS へ1日1回書き出し、`/infer` はそこを読んで BigQuery への
+  問い合わせを避けるようにした。
+  **デプロイに2つのコンポーネントが要る**: (1) `nar-refresh` Job（キャッシュを
+  書く側、`refresh.py` の変更を含む新イメージ）、(2) `nar-ops` サービス
+  （キャッシュを読む側、`features.py`/`service.py`/`app.py` の変更を含む新
+  イメージ、かつ `NAROPS_INGEST_STORE` 環境変数が要る — `deploy.py` の
+  env var 一覧に追加済み）。**`nar-ops` は実際の推論・配信を担う本番サービス**
+  なので、`nar-refresh`（内部バッチ）よりデプロイの影響範囲が大きい。
+  `operation/tests/test_entity_cache.py` に history_before/build_for_race の
+  完全一致テスト（キャッシュ有無で特徴量出力が1バイトも変わらないこと）を
+  用意してあり、実装中にこのテストが実際に1件の不具合（tz-aware/naive の
+  混在で `pd.to_datetime` が一部行を静かに NaT にする）を検出・修正させた
+  （§2.5参照）。デプロイ後は `nar-refresh` を1回実行して当日分のキャッシュを
+  作り、`gcloud storage ls` で `entity_cache/{当日}.parquet` の存在を確認し、
+  `/infer` の実行ログに `entry_result_final` への `SELECT *`（下限日付なし）が
+  出なくなっていることを `INFORMATION_SCHEMA.JOBS_BY_PROJECT` で確認すること。
+  GCS ライフサイクル（`deploy.py::LIFECYCLE`、7日で削除）は `gcloud storage
+  buckets update --lifecycle-file` を別途適用しないと反映されない
+  （`narops deploy --apply` の gcs_lifecycle ステップ、または直接 gcloud）。
+
+  **本番障害（2026-09-11、デプロイ当日）と再修正**: `nar-ops` デプロイ直後、
+  笠松のレース（1R・2R・3R）が無音で推論欠測した（利用者からの報告で発覚。
+  Cloud Tasks の queue にタスクが残らず、`prediction`/`notification_log` にも
+  何も無く、ログにも該当 race_id の痕跡が一切無いという「静かな」壊れ方）。
+  原因はメモリ: `entity_cache`（本番実測 480万行・43列）を `pd.read_parquet()`
+  で全件 pandas 化する実装だったため、列を DDL 相当の27列に絞ってもなお
+  5GB を超え、`nar-ops`（4GiB 上限）を OOM Kill していた（Cloud Run は
+  OOM を 503 として扱い、Cloud Tasks が3回リトライして同じ理由で失敗し続けた
+  末にタスクを諦めて消す — この経路は成功時と同じくログにほぼ残らない）。
+  単体テスト（フィクスチャは数百行）ではこの規模の問題は原理的に再現しない。
+  **等価性は単体テストで検証できても、本番データ規模でのメモリは実データで
+  しか分からない。** 新しいモデル・データパイプラインを本番規模データに
+  向けて初めてデプロイするときは、実データでのメモリ実測を必須にすること。
+
+  対応: `entity_cache` を DataFrame ではなくローカル parquet ファイルパスに変更し、
+  絞り込みは `narops.refresh.query_entity_cache`（`pyarrow.parquet.read_table`
+  のフィルタ pushdown）が行毎に行うようにした。実測: 旧実装 5.1GB →
+  新実装 1レースあたり約440MB（一時的、リクエスト終了で解放）。
+  `operation/tests/test_entity_cache.py::test_history_before_cache_avoids_loading_full_table_into_pandas`
+  が `pd.read_parquet` を一切呼ばないことを直接検証する回帰テストとして残っている。
+  再デプロイ後、笠松4Rで `prediction`/`notification_log` への正常書き込みと
+  エラーログ0件を確認済み（2026-09-11 12:43 JST）。1R・2R・3Rの3レースぶんは
+  障害中に発走時刻を過ぎ、恒久的に欠測扱いとなった（後から推論しても意味が
+  無いため再実行はしない）。

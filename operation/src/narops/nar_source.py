@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 
 import httpx
 import pandas as pd
+from nar.transform.keys import KNOWN_BABA_CODES
 
 from .clock import JST, to_utc
 from . import deba_table, results_table
@@ -42,12 +43,17 @@ ODDS_URL = "https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/OddsTanFuku"
 # 当日成績表。ライブ層を埋める唯一の経路（確定層は翌日以降）
 RESULT_URL = "https://www.keiba.go.jp/KeibaWeb/TodayRaceInfo/RaceMarkTable"
 
-# 競馬場名 → k_babaCode。学習側の TrackMaster と同じ写像
-BABA_CODE = {
-    "帯広ば": 3, "門別": 36, "盛岡": 10, "水沢": 10, "浦和": 18, "船橋": 19,
-    "大井": 20, "川崎": 21, "金沢": 22, "笠松": 23, "名古屋": 24, "園田": 27,
-    "姫路": 27, "高知": 31, "佐賀": 32,
-}
+# 競馬場名 → k_babaCode。学習側の TrackMaster（`nar.transform.keys`）から直接取る。
+#
+# 以前はここに同じ辞書を手書きで複製しており、学習側で 水沢=10→11、姫路=27→28 の
+# 誤りが修正された（`transform/keys.py::KNOWN_BABA_CODES` のコメント参照）ときに
+# 運用側だけ古い値のまま取り残された。結果、水沢の当日レースが盛岡と同じ
+# baba_code=10 で処理され、速度指数の基準統計量（場×距離で算出）が盛岡のものに
+# すり替わったまま推論が回っていた（2026-09、水沢の推論停止として発覚）。
+#
+# 2つの辞書を維持する限りこの種の乖離は必ず再発する。学習側を唯一の実装にする
+# （`shared.py::track_names()` が逆写像で既に同じ方針を取っている）。
+BABA_CODE = KNOWN_BABA_CODES
 
 
 class NarFetchError(Exception):

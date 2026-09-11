@@ -55,6 +55,8 @@ def generate(cfg: SynthConfig | None = None) -> dict[str, pd.DataFrame]:
 
     horse_ids = np.array([f"H{i:06d}" for i in range(cfg.n_horses)])
     horse_ability = rng.normal(0, 1, size=cfg.n_horses)
+    # 脚質。正なら上がりが掛かる（前傾＝逃げ型）、負なら終いが速い（差し型）。
+    horse_closing = rng.normal(0, 0.9, size=cfg.n_horses)
     # 各馬に現役期間を持たせる。これが無いと全馬が全期間に出走し、名寄せ監査
     # （現役期間12年以下）が合成データ側の都合で必ず落ちる。
     span_days = (pd.Timestamp(cfg.end) - pd.Timestamp(cfg.start)).days
@@ -115,6 +117,10 @@ def generate(cfg: SynthConfig | None = None) -> dict[str, pd.DataFrame]:
 
         base_time = dist * 0.062
         time_sec = base_time + (finish - 1) * 0.18 + rng.normal(0, 0.6, n)
+        # 上がり3F（秒）。ペースバランス特徴量（h_pace_bal_last3）の材料。
+        # 脚質を馬ごとに固定しておくと、過去走の平均が意味を持つ列になり、
+        # LK-05（未来汚染）が実際にこの経路を検査できる。
+        last3f = 39.0 + horse_closing[h_idx] + (finish - 1) * 0.05 + rng.normal(0, 0.4, n)
 
         m_util = (utility + rng.normal(0, cfg.market_noise, n)) / cfg.longshot_tilt
         p_market = np.exp(m_util) / np.exp(m_util).sum()
@@ -150,6 +156,7 @@ def generate(cfg: SynthConfig | None = None) -> dict[str, pd.DataFrame]:
                 "finish_pos": int(finish[k]),
                 "is_win": int(finish[k] == 1),
                 "time_sec": float(time_sec[k]),
+                "last3f": float(last3f[k]),
                 "odds_win": float(odds_win[k]),
                 "popularity": int(popularity[k]),
                 "weight_kg": float(rng.normal(460, 30)),
@@ -316,6 +323,8 @@ def poison_future(entry: pd.DataFrame, cutoff: str, seed: int = 0) -> pd.DataFra
     out.loc[idx, "finish_pos"] = rng.permutation(out.loc[idx, "finish_pos"].to_numpy())
     out.loc[idx, "is_win"] = (out.loc[idx, "finish_pos"] == 1).astype(int)
     out.loc[idx, "time_sec"] = out.loc[idx, "time_sec"] + rng.normal(0, 50, n)
+    if "last3f" in out.columns:
+        out.loc[idx, "last3f"] = out.loc[idx, "last3f"] + rng.normal(0, 5, n)
     for c in FEATURE_COLS:
         out.loc[idx, c] = rng.normal(0, 10, n)
     drop = rng.choice(idx, size=max(1, n // 20), replace=False)

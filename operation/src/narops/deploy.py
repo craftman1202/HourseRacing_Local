@@ -55,6 +55,11 @@ LIFECYCLE = {
          "condition": {"age": 30}},
         {"action": {"type": "SetStorageClass", "storageClass": "COLDLINE"},
          "condition": {"age": 365}},
+        # entity キャッシュ（narops.refresh）は当日分しか読まれない
+        # （日付ごとに別ファイル）。7日分だけ残せば障害調査に十分で、
+        # 無期限に溜めると1日あたり ~1GB ずつ純増する。
+        {"action": {"type": "Delete"},
+         "condition": {"age": 7, "matchesPrefix": ["ingest-store/entity_cache/"]}},
     ],
     # リリースは10世代保持。古い版はロールバック先として残す必要がある
     "model": [
@@ -252,6 +257,12 @@ def build_plan(infra_path: Path | None = None, service_url: str | None = None,
                 *([f"NAROPS_MODEL_BUCKET={cfg['gcs']['model']}"]
                   if name == "nar-ops" else []),
                 f"NAROPS_RAW_BUCKET={cfg['gcs']['raw']}",
+                # entity キャッシュ（narops.refresh）の永続化先。nar-refresh
+                # Job が書く場所と同じ値でなければキャッシュが見つからない
+                # （見つからなくても直接 BigQuery へフォールバックするので
+                # 推論は止まらないが、コスト最適化が効かなくなる）。
+                *([f"NAROPS_INGEST_STORE=gs://{cfg['gcs']['raw']}/ingest-store"]
+                  if name == "nar-ops" else []),
                 # 役割。通知とモデル読み込みを持つのは ops だけ
                 f"NAROPS_ROLE={name.replace('nar-', '')}",
                 # 推論タスクの予約先。渡さないとインメモリのままになり、

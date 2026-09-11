@@ -53,7 +53,8 @@ def _build_services() -> Any:
                        max_bytes_billed=cfg.max_bytes_billed)
         schema.create_all(wh)
 
-    svc = Services(wh=wh, cfg=cfg, state=state)
+    svc = Services(wh=wh, cfg=cfg, state=state,
+                  ingest_store=os.environ.get("NAROPS_INGEST_STORE"))
     _attach_queue(svc, cfg)
     _attach_model(svc, cfg)
     _attach_discord(svc, cfg, state)

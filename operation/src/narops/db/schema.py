@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS entry_result_final (
   jockey_sk    VARCHAR, trainer_sk VARCHAR, sire_sk VARCHAR,
   race_date    DATE, start_ts TIMESTAMP, baba_code INTEGER, distance INTEGER,
   finish_pos   INTEGER, is_win INTEGER, time_sec DOUBLE, speed_index DOUBLE,
+  -- 上がり3F（秒）。過去走のペースバランス特徴量 h_pace_bal_last3 の材料。
+  -- 当該レースでは post-race だが、履歴として持つぶんには発走時点で確定済み。
+  last3f       DOUBLE,
   -- NAR 申告の累積成績8列。EDA（LK-09/10/11）で as-of-race を確定させたので
   -- 特徴量として使う。当日の出馬表にも同じ8列が載るため、学習と推論で同じ値が取れる。
   -- 履歴側にも持たないと、対象レース行だけ列があって concat で落ちる。
@@ -36,6 +39,9 @@ CREATE TABLE IF NOT EXISTS entry_result_live (
   jockey_sk    VARCHAR, trainer_sk VARCHAR, sire_sk VARCHAR,
   race_date    DATE, start_ts TIMESTAMP, baba_code INTEGER, distance INTEGER,
   finish_pos   INTEGER, is_win INTEGER, time_sec DOUBLE, speed_index DOUBLE,
+  -- 上がり3F（秒）。過去走のペースバランス特徴量 h_pace_bal_last3 の材料。
+  -- 当該レースでは post-race だが、履歴として持つぶんには発走時点で確定済み。
+  last3f       DOUBLE,
   -- NAR 申告の累積成績8列。EDA（LK-09/10/11）で as-of-race を確定させたので
   -- 特徴量として使う。当日の出馬表にも同じ8列が載るため、学習と推論で同じ値が取れる。
   -- 履歴側にも持たないと、対象レース行だけ列があって concat で落ちる。
@@ -118,7 +124,7 @@ CREATE TABLE IF NOT EXISTS skew_check (
 # ASCII 列名と日本語の対応をここ1か所に置く。
 HISTORY_COLUMNS = """race_id, horse_no, horse_sk, jockey_sk, trainer_sk, sire_sk,
        race_date, start_ts, baba_code, distance,
-       finish_pos, is_win, time_sec, speed_index,
+       finish_pos, is_win, time_sec, speed_index, last3f,
        jockey_record, all_record, dirt_left_record, dirt_right_record,
        track_record, dist_record, best_time, best_time_good,
        turn, baba_condition"""

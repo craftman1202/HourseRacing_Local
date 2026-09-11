@@ -153,6 +153,64 @@ def test_sk04_missing_representation_is_nan_not_zero(populated, release_dir, clo
     assert all(v == "nan" for v in res.spec.missing.values())
 
 
+# ------------------------------- SK-02: 新規特徴量の学習/推論パリティ（設計書 §13.1）
+def test_new_features_match_between_training_and_serving(populated, release_dir, clock):
+    """`h_pace_bal_last3` と `jt_winrate_wilson` が推論経路でも学習と同じ値になること。
+
+    この2つは 2026-09 に追加した特徴量で、経路が他と違う:
+
+      - ペースバランスは確定層の `last3f` を材料にする。列を DDL に足しても
+        既存行が NULL のままだと、学習時は値があり推論時だけ全行 NaN という
+        train-serving skew になる（実際にこの移行を `scripts/backfill_last3f.py`
+        で行った）。「NaN でも落ちない」ことではなく「値が入る」ことを検査する。
+      - 騎手×調教師は履歴の取得範囲が新しい条件を要求する。出馬表の馬だけを
+        引いていると組み合わせの過去が欠け、学習時より小さい標本の Wilson 下限に
+        なる。`history_before` が騎手・調教師のキャリアも引いている前提を固定する。
+
+    比較対象は「同じ履歴を学習側ビルダーに直接渡した値」。運用側は学習側の
+    build() をそのまま呼ぶので、一致しない場合は入力の作り方が違う。
+    """
+    import numpy as np
+    from nar.config import feature_config
+    from nar.features.builder import build as build_features
+
+    from narops.clock import jst_datetime, to_utc
+    from narops.features import build_for_race
+    from narops.model.manifest import Manifest
+
+    start = jst_datetime(2026, 8, 22, 14, 30)
+    hist = populated.table("entry_result_final")
+    # 実績のある馬・騎手・調教師で出馬表を組む。初出走馬だと過去走が無く、
+    # ペースバランスは定義上 NULL になって検査にならない。
+    seen = hist.sort_values("start_ts").drop_duplicates("horse_sk")
+    veterans = (hist.groupby("horse_sk").size().sort_values(ascending=False)
+                .head(6).index.tolist())
+    rows = []
+    for i, h in enumerate(veterans):
+        r = seen[seen["horse_sk"] == h].iloc[0]
+        rows.append({"race_id": "202026082201", "horse_no": i + 1, "horse_sk": h,
+                     "jockey_sk": r["jockey_sk"], "trainer_sk": r["trainer_sk"],
+                     "sire_sk": r["sire_sk"]})
+    card = pd.DataFrame(rows)
+    race_row = pd.Series({
+        "race_id": "202026082201", "race_date": start.date(), "start_ts": to_utc(start),
+        "baba_code": 20, "distance": 1400, "race_no": 1, "surface": "ダ",
+        "class_level": 2, "prize_yen": 1_000_000, "turn": "右", "baba_condition": "良",
+    })
+    res = build_for_race(populated, card, race_row,
+                         Manifest.read(release_dir / "manifest.json"),
+                         feature_config(), max_bytes_billed=2_000_000_000)
+
+    assert "h_pace_bal_last3" in res.frame.columns
+    assert res.frame["h_pace_bal_last3"].notna().any(), (
+        "推論時のペースバランスが全頭 NaN です。確定層の last3f が"
+        "埋まっていないか、履歴の取り方が学習時と違います。")
+    assert (res.frame["jt_starts_prior"] > 0).any(), (
+        "騎手×調教師の過去出走が1件も引けていません。履歴の取得範囲を"
+        "確認してください（出馬表の馬だけに絞ると組み合わせの過去が落ちます）。")
+    assert res.frame["jt_winrate_wilson"].between(0.0, 1.0).all()
+
+
 # ------------------------------------------------------------------ SK-06
 def test_sk06_snapshot_is_always_saved(populated, release_dir, clock):
     from nar.config import feature_config

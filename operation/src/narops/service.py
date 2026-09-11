@@ -108,6 +108,37 @@ class Services:
     banei: ModelBundle | None = None
     banei_registry: Any = None
 
+    # entity キャッシュ（narops.refresh 参照）の永続化先。None なら
+    # history_before は全クエリを BigQuery に投げる（従来どおり、コスト最適化
+    # のみが目的で可用性には効かない）。
+    ingest_store: str | None = None
+    _entity_cache_date: date | None = field(default=None, repr=False)
+    _entity_cache_path: str | None = field(default=None, repr=False)
+
+    def entity_cache_for(self, day: date) -> str | None:
+        """当日分の entity キャッシュの**ローカルファイルパス**。
+
+        `read_entity_cache` はファイルをローカルへ保存するだけで、
+        DataFrame 化はしない（480万行を pandas 化すると列を絞っても 5GB を
+        超え、`nar-ops` を OOM Kill する — 2026-09-11 の本番障害で判明）。
+        絞り込みは呼び出し側（`features.py::history_before` 経由の
+        `query_entity_cache`）がレースごとに pyarrow のフィルタ pushdown で
+        行う。`/infer` はレースごとに独立した呼び出しだが、同じ Cloud Run
+        インスタンスが複数レースを続けて処理することもあるので、日付が
+        変わるまでダウンロード結果（ローカルパス）をインスタンス内で
+        使い回す。日付が変わったら黙って破棄して読み直す。
+        """
+        if self.ingest_store is None:
+            return None
+        if self._entity_cache_date == day:
+            return self._entity_cache_path
+        from .refresh import read_entity_cache
+
+        path = read_entity_cache(self.ingest_store, day)
+        self._entity_cache_date = day
+        self._entity_cache_path = path
+        return path
+
     def bundle_for(self, baba_code: int) -> ModelBundle:
         """この場を担当する配布物。
 
@@ -457,7 +488,8 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
 
     try:
         feats = build_for_race(svc.wh, card, row, bundle.manifest, bundle.feature_config,
-                               max_bytes_billed=svc.cfg.max_bytes_billed)
+                               max_bytes_billed=svc.cfg.max_bytes_billed,
+                               entity_cache=svc.entity_cache_for(day))
         save_snapshot(svc.wh, feats, race_id, bundle.manifest.model_id, svc.clock)
 
         odds = None

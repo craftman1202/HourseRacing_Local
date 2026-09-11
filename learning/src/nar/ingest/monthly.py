@@ -126,17 +126,22 @@ def backfill(
     client: NarClient, store: Store, manifest: Manifest,
     start_ym: str, end_ym: str, today: date,
     finalize_after_days: int = 45, kind: str = "race",
-    on_progress=None,
+    on_progress=None, daily_refresh_months: int = 2,
 ) -> list[FetchOutcome]:
     """全期間のバックフィル。
 
     3秒間隔は client のトークンバケットが強制する。344か月なら約20分。
+
+    `daily_refresh_months` は `fetch_month`/`should_fetch` へそのまま渡す
+    （既定2 = IG-16「日次差分は当月＋前月のみ」を変えない）。一度きりの確定化
+    スイープ（`operation/scripts/finalize_history_backlog.py`）だけが、過去分
+    すべてを対象に含める大きな値を明示的に渡す。
     """
     out = []
     months = month_range(start_ym, end_ym)
     for i, ym in enumerate(months, start=1):
         res = fetch_month(client, store, manifest, ym, today, finalize_after_days,
-                          kind=kind)
+                          daily_refresh_months, kind=kind)
         out.append(res)
         if on_progress:
             on_progress(i, len(months), res)

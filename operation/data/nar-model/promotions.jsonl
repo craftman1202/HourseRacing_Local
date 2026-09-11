@@ -1,3 +1,6 @@
 {"at": "2026-08-27T23:21:27", "actor": "integral.sekibundx@gmail.com", "from": null, "to": "v2026.08.27-B", "reason": "初回導入"}
 {"at": "2026-08-28T05:16:21", "actor": "integral.sekibundx@gmail.com", "from": "v2026.08.27-B", "to": "v2026.08.28-A", "reason": "初回導入"}
 {"at": "2026-08-30T09:46:10", "family": "banei", "actor": "ItoNaoya", "from": null, "to": "v2026.08.30-A-banei", "reason": "初回導入"}
+{"at": "2026-09-05T13:54:31", "family": "flat", "actor": "integral.sekibundx (OOS実測をシャドー値として使用・14日実運用シャドーは未実施・ユーザー承認済み)", "from": "v2026.08.28-A", "to": "v2026.09.05-A", "reason": "promotion nll=1.7986 ece=0.0030"}
+{"at": "2026-09-05T14:37:27", "family": "flat", "actor": "integral.sekibundx (出荷用fit-final --through 2026-09-05 で学習期間の古さを修正。OOS実測をシャドー値として使用・14日実運用シャドーは未実施・ユーザー承認済み)", "from": "v2026.09.05-A", "to": "v2026.09.05-B", "reason": "promotion nll=1.7986 ece=0.0030"}
+{"at": "2026-09-05T14:48:54", "family": "flat", "actor": "integral.sekibundx (出荷用fit-final --through 2026-09-05。OOS実測をシャドー値として使用・14日実運用シャドーは未実施・ユーザー承認済み。GCS実切替はcli.pyの_model_registryバグ修正後の初回)", "from": "v2026.09.05-B", "to": "v2026.09.05-B", "reason": "promotion nll=1.7986 ece=0.0030"}

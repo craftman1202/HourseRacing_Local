@@ -25,7 +25,7 @@ _TIME_RE = re.compile(r"(?:(\d+):)?(\d+)\.(\d)")
 # 着順は数字。取消・除外・中止は「取」「除」「中」などが入る
 _POS_RE = re.compile(r"^\s*(\d+)\s*$")
 
-RESULT_COLUMNS = ["horse_no", "finish_pos", "is_win", "time_sec"]
+RESULT_COLUMNS = ["horse_no", "finish_pos", "is_win", "time_sec", "last3f"]
 
 
 def _time_sec(raw: object) -> float | None:
@@ -68,6 +68,10 @@ def parse(html: str) -> pd.DataFrame:
     pos_col = next((c for c in t.columns if "着順" in c), None)
     no_col = next((c for c in t.columns if "馬番" in c), None)
     time_col = next((c for c in t.columns if "タイム" in c), None)
+    # 上がり3F。ペースバランス特徴量（h_pace_bal_last3）の材料で、確定層と同じ列を
+    # ライブ層にも入れておく。表記は開催・年によって「上り3F」「上がり3F」で揺れる。
+    last3f_col = next((c for c in t.columns
+                       if "3F" in c.upper() and ("上り" in c or "上がり" in c)), None)
     if pos_col is None or no_col is None:
         return pd.DataFrame(columns=RESULT_COLUMNS)
 
@@ -83,5 +87,7 @@ def parse(html: str) -> pd.DataFrame:
             "finish_pos": pos,
             "is_win": int(pos == 1),
             "time_sec": _time_sec(r[time_col]) if time_col else None,
+            "last3f": (pd.to_numeric(r[last3f_col], errors="coerce")
+                       if last3f_col else None),
         })
     return pd.DataFrame(rows, columns=RESULT_COLUMNS)

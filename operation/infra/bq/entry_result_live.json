@@ -123,5 +123,10 @@
     "name": "captured_at",
     "type": "TIMESTAMP",
     "mode": "NULLABLE"
+  },
+  {
+    "name": "last3f",
+    "type": "FLOAT64",
+    "mode": "NULLABLE"
   }
 ]

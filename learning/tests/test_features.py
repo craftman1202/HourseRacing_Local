@@ -9,7 +9,7 @@ import pytest
 from nar.config import feature_config
 from nar.errors import LeakageError
 from nar.features.builder import ASOF_FEATURES, build, content_hash
-from nar.features.shrinkage import shrink
+from nar.features.shrinkage import shrink, sql_wilson_lower, wilson_lower
 from nar.transform.prerace import assert_no_market_info
 
 
@@ -114,6 +114,39 @@ def test_fe05_shrinkage_endpoints():
     assert shrink(np.array([0]), np.array([0]), prior, 50.0)[0] == pytest.approx(prior)
     big = shrink(np.array([1e9 * 0.3]), np.array([1e9]), prior, 50.0)[0]
     assert big == pytest.approx(0.3, abs=1e-6), "出走数→∞ で生の勝率に収束すること"
+
+
+def test_wilson_python_and_sql_implementations_agree():
+    """`wilson_lower`（numpy）と `sql_wilson_lower`（DuckDB）が同じ値を返すこと。
+
+    同じ式を2箇所に書いている以上、片方だけ直して静かにズレる経路がある。
+    ズレると学習（gold は SQL 側）と、Python 側で検算する解析・テストの数字が
+    食い違い、原因がとても追いにくい形で表に出る。ここで固定しておく。
+    """
+    import duckdb
+
+    wins = np.array([0, 0, 1, 1, 3, 17, 250, 1, 0])
+    starts = np.array([0, 1, 1, 5, 10, 100, 3000, 2, 7])
+    expected = wilson_lower(wins, starts)
+
+    con = duckdb.connect()
+    df = pd.DataFrame({"w": wins, "n": starts})
+    con.register("t", df)
+    expr = sql_wilson_lower("w", "n")
+    got = con.execute(f"SELECT {expr} AS v FROM t").df()["v"].to_numpy()
+    con.close()
+
+    assert np.allclose(expected, got, atol=1e-12, equal_nan=True), (
+        f"Python と SQL の Wilson 下限が一致しません\npython={expected}\nsql   ={got}")
+
+
+def test_wilson_lower_is_conservative_for_small_samples():
+    """1戦1勝は点推定 1.0 でも下限は大きく割り引かれること（FE-05 と同じ思想）。"""
+    assert wilson_lower(np.array([1]), np.array([1]))[0] < 0.25
+    assert wilson_lower(np.array([0]), np.array([0]))[0] == 0.0
+    # 標本が増えれば生の勝率に近づく
+    many = wilson_lower(np.array([300]), np.array([1000]))[0]
+    assert 0.25 < many < 0.30, many
 
 
 def test_fe05_shrinkage_rejects_zero_alpha():

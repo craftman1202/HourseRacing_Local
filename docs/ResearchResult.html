@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>競馬データサイエンス調査報告書</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', 'Yu Gothic', 'Hiragino Sans', sans-serif;
+            line-height: 1.8;
+        }
+        .report-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 3rem 0;
+            text-align: center;
+        }
+        .section-title {
+            color: #2d3748;
+            border-left: 5px solid #667eea;
+            padding-left: 1rem;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+        .subsection-title {
+            color: #4a5568;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .info-box {
+            background-color: #ebf8ff;
+            border-left: 4px solid #3182ce;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        .warning-box {
+            background-color: #fffaf0;
+            border-left: 4px solid #ed8936;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        .success-box {
+            background-color: #f0fff4;
+            border-left: 4px solid #48bb78;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        .citation {
+            font-size: 0.875rem;
+            color: #718096;
+            font-style: italic;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        th, td {
+            border: 1px solid #e2e8f0;
+            padding: 0.75rem;
+            text-align: left;
+        }
+        th {
+            background-color: #edf2f7;
+            font-weight: 600;
+        }
+        .code-block {
+            background-color: #2d3748;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 0.375rem;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+        }
+        .formula {
+            background-color: #f7fafc;
+            padding: 0.5rem 1rem;
+            border-radius: 0.25rem;
+            font-family: 'Times New Roman', serif;
+            text-align: center;
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="report-header">
+        <div class="container mx-auto px-4">
+            <h1 class="text-4xl font-bold mb-4">競馬データサイエンス調査報告書</h1>
+            <p class="text-xl">予測精度向上と最適ベット戦略に関する包括的研究</p>
+            <p class="text-sm mt-4 opacity-90">2026年9月</p>
+        </div>
+    </div>
+
+    <div class="container mx-auto px-4 py-8 max-w-5xl bg-white shadow-lg">
+        
+        <!-- 目次 -->
+        <div class="mb-12 p-6 bg-gray-100 rounded-lg">
+            <h2 class="text-2xl font-bold mb-4"><i class="fas fa-list mr-2"></i>目次</h2>
+            <ol class="list-decimal list-inside space-y-2">
+                <li><a href="#executive-summary" class="text-blue-600 hover:underline">エグゼクティブサマリー</a></li>
+                <li><a href="#approaches" class="text-blue-600 hover:underline">予測精度向上のための主要アプローチ</a></li>
+                <li><a href="#betting-strategies" class="text-blue-600 hover:underline">ベッティング戦略と数理最適化</a></li>
+                <li><a href="#practical-strategies" class="text-blue-600 hover:underline">実践的な戦略提案</a></li>
+                <li><a href="#case-studies" class="text-blue-600 hover:underline">既存の成功事例と実績</a></li>
+                <li><a href="#challenges" class="text-blue-600 hover:underline">課題と限界</a></li>
+                <li><a href="#optimal-strategy" class="text-blue-600 hover:underline">最適な戦略の提案</a></li>
+                <li><a href="#conclusion" class="text-blue-600 hover:underline">結論と今後の展望</a></li>
+            </ol>
+        </div>
+
+        <!-- 1. エグゼクティブサマリー -->
+        <section id="executive-summary" class="mb-12">
+            <h2 class="section-title text-3xl font-bold">1. エグゼクティブサマリー</h2>
+            
+            <div class="info-box">
+                <h3 class="font-bold text-lg mb-2"><i class="fas fa-chart-line mr-2"></i>主要な発見</h3>
+                <ul class="list-disc list-inside space-y-2">
+                    <li>適切なデータサイエンス手法の適用により、<strong>回収率100%超え</strong>は実現可能</li>
+                    <li>Bill Benterの事例では<strong>年間約10億ドルの収益</strong>を達成（香港競馬）</li>
+                    <li>アンサンブル学習（XGBoost、LightGBM）が<strong>最も高い予測精度</strong>を達成</li>
+                    <li>ケリー基準による資金配分最適化が<strong>長期的な資本成長</strong>に不可欠</li>
+                    <li>適切な前処理（標準化・相対化）だけで<strong>回収率が2倍に向上</strong>した事例あり</li>
+                </ul>
+            </div>
+
+            <p class="mt-4">
+                競馬予測におけるデータサイエンスの活用は、単なる「当たる・当たらない」の予測を超えて、<strong>期待値に基づく合理的な投資判断</strong>として成熟しつつあります。本報告書では、頻度論的統計、ベイズ統計、機械学習、ディープラーニング、数理最適化など、多角的なアプローチを体系的に調査し、実践可能な戦略を提案します。
+            </p>
+
+            <div class="success-box mt-4">
+                <h3 class="font-bold mb-2"><i class="fas fa-lightbulb mr-2"></i>重要な洞察</h3>
+                <p>
+                    競馬AIで本当に重視すべきデータは<strong>全体の約4%</strong>（期待値が1を超える馬券）に過ぎません。大多数のデータで予測精度を改善しても回収率には直接影響しないため、学習時に重み付けを行うことが重要です。
+                </p>
+                <p class="citation mt-2">出典: note.com - 「競馬AIで本当に重視すべきデータは、全体の4%しかなかった」</p>
+            </div>
+        </section>
+
+        <!-- 2. 予測精度向上のための主要アプローチ -->
+        <section id="approaches" class="mb-12">
+            <h2 class="section-title text-3xl font-bold">2. 予測精度向上のための主要アプローチ</h2>
+
+            <!-- 2.1 頻度論的アプローチ -->
+            <h3 class="subsection-title text-2xl font-semibold">2.1 頻度論的アプローチ（統計モデル）</h3>
+            
+            <p>
+                頻度論的アプローチは、大量のデータから統計的パターンを抽出し、各馬の勝率を推定する伝統的な手法です。特に<strong>多項ロジット回帰（Multinomial Logit Regression）</strong>は、Bill Benterによって香港競馬で大成功を収めたことで知られています。
+            </p>
+
+            <div class="success-box mt-4">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-trophy mr-2"></i>Bill Benterのアプローチ</h4>
+                <ul class="list-disc list-inside space-y-1">
+                    <li><strong>100以上の変数</strong>を使用（直近のタイム、体重、騎手データ、天候、枠順など）</li>
+                    <li>多変量回帰分析により各馬の真の勝率を計算</li>
+                    <li>市場オッズと推定確率の<strong>乖離（エッジ）</strong>を特定</li>
+                    <li>ケリー基準による最適資金配分</li>
+                    <li><strong>結果：年間約10億ドルの収益</strong></li>
+                </ul>
+                <p class="citation mt-2">出典: Bloomberg - "The Gambler Who Cracked the Horse-Racing Code"</p>
+            </div>
+
+            <div class="formula mt-4">
+                <strong>多項ロジット回帰の基本式：</strong><br>
+                P(馬iが勝つ) = exp(β₀ + β₁X₁ + β₂X₂ + ... + βₙXₙ) / Σⱼ exp(β₀ + β₁Xⱼ₁ + β₂Xⱼ₂ + ... + βₙXⱼₙ)
+            </div>
+
+            <!-- 2.2 ベイズ統計的アプローチ -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">2.2 ベイズ統計的アプローチ</h3>
+            
+            <p>
+                ベイズ統計は、<strong>事前知識（事前確率）</strong>を新しい情報（尤度）で更新し、<strong>事後確率</strong>を得る手法です。競馬では、血統データや馬場適性などの専門知識を数学的に組み込むことができます。
+            </p>
+
+            <div class="info-box mt-4">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-dna mr-2"></i>血統データを活用したベイズ推定</h4>
+                <p class="mb-2">
+                    血統（種牡馬やブルードメアサイア）を「新しい情報」として扱い、レースごとに各馬の勝率を更新します。
+                </p>
+                <div class="formula">
+                    <strong>ベイズ更新式：</strong><br>
+                    P(勝つ | 血統) = P(血統 | 勝つ) × P(勝つ) / P(血統)
+                </div>
+                <p class="mt-2">
+                    <strong>ベイズ因子λ</strong>を用いた簡略化：<br>
+                    λ = P(血統 | 勝つ) / P(血統 | 負ける)<br>
+                    更新後の確率 = λ / (1 + (λ - 1) × 事前確率) × 事前確率
+                </p>
+                <p class="citation mt-2">出典: walkintheforest.net - 「競馬AI：血統✖️ベイズ推定で予想確率を向上！」</p>
+            </div>
+
+            <h4 class="font-semibold mt-4 text-lg">Stan/Rによる能力値推定</h4>
+            <p>
+                将棋の棋士レーティングと同様に、<strong>馬と騎手の「強さ」</strong>をベイズモデルで推定する手法も有効です。事前分布に馬と騎手の力の割合を7:3と仮定し、グレード別（G1、G2、G3）に能力値を推定します。
+            </p>
+            <p class="citation">出典: Qiita - 「競馬AIの自作と今年のレースで検証してみた」</p>
+
+            <!-- 2.3 機械学習アプローチ -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">2.3 機械学習アプローチ</h3>
+            
+            <p>
+                機械学習、特に<strong>アンサンブル学習（Ensemble Learning）</strong>は、現在最も高い予測精度を達成している手法です。
+            </p>
+
+            <table class="mt-4">
+                <thead>
+                    <tr>
+                        <th>アルゴリズム</th>
+                        <th>特徴</th>
+                        <th>予測精度</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>ランダムフォレスト</strong></td>
+                        <td>複数の決定木を組み合わせ、過学習を防ぐ</td>
+                        <td>高い（各種研究で最高精度を記録）</td>
+                    </tr>
+                    <tr>
+                        <td><strong>XGBoost</strong></td>
+                        <td>勾配ブースティング、高速・高精度</td>
+                        <td>非常に高い（MAE 0.000225秒）</td>
+                    </tr>
+                    <tr>
+                        <td><strong>LightGBM</strong></td>
+                        <td>GPUサポート、高速学習（300秒 vs 5000秒）</td>
+                        <td>非常に高い（XGBoostと同等）</td>
+                    </tr>
+                    <tr>
+                        <td><strong>CatBoost</strong></td>
+                        <td>カテゴリ変数の自動処理、過学習に強い</td>
+                        <td>最高（RMSE 0.000368秒）</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="citation">出典: Medium - "High-Precision Prediction of Horse Racing Durations Using Ensemble Machine Learning Models"</p>
+
+            <div class="info-box mt-4">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-ranking-star mr-2"></i>ランキング学習（Learning to Rank）</h4>
+                <p class="mb-2">
+                    競馬は順位予測問題として捉えることができます。LightGBMの<code class="bg-gray-200 px-1">lambdarank</code>目的関数を使用することで、レース内の相対順位を直接学習できます。
+                </p>
+                <div class="code-block">
+params = {<br>
+&nbsp;&nbsp;'objective': 'lambdarank',<br>
+&nbsp;&nbsp;'metric': 'ndcg',<br>
+&nbsp;&nbsp;'boosting': 'gbdt',<br>
+&nbsp;&nbsp;'learning_rate': 0.05<br>
+}<br>
+train_data = lgb.Dataset(X, label=y, group=group)
+                </div>
+                <p class="citation mt-2">出典: issoh.co.jp - 「競馬予想AIの特徴量一覧｜LightGBMランキング学習の実装」</p>
+            </div>
+
+            <h4 class="font-semibold mt-6 text-lg">重要な特徴量</h4>
+            <p>機械学習モデルで効果的な特徴量は以下の通りです：</p>
+            <ul class="list-disc list-inside mt-2 space-y-1">
+                <li><strong>馬の情報：</strong>年齢、性別、体重、体重変化、前走からの経過日数</li>
+                <li><strong>過去の成績：</strong>前走・2走前・3走前の順位、タイム、上がり3ハロン</li>
+                <li><strong>騎手・調教師：</strong>勝率、複勝率、能力値（ベイズ推定）</li>
+                <li><strong>レース条件：</strong>距離、馬場状態、天候、コース（芝/ダート）、頭数</li>
+                <li><strong>枠順・馬番：</strong>特定のコースでの有利不利</li>
+            </ul>
+            <p class="citation mt-2">出典: Qiita - 「機械学習で競馬の回収率100%超えを達成した話」</p>
+
+            <!-- 2.4 ディープラーニングアプローチ -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">2.4 ディープラーニングアプローチ</h3>
+            
+            <p>
+                ディープラーニングは、特に時系列データを扱う際に有効です。<strong>部分再帰型ニューラルネットワーク（RNN/LSTM）</strong>は、馬の過去の成績を時系列として捉え、次のレース結果を予測します。
+            </p>
+
+            <div class="info-box mt-4">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-brain mr-2"></i>部分再帰型ニューラルネットワークの活用</h4>
+                <p class="mb-2">
+                    競馬データは<strong>時系列データと属性データの混合</strong>です。LSTMを使用することで、過去のレースパターンを記憶しながら予測精度を向上させることができます。
+                </p>
+                <ul class="list-disc list-inside space-y-1">
+                    <li>香港競馬データ（6000+レース）で<strong>訓練精度92%</strong>を達成した事例あり</li>
+                    <li>過学習の問題に対処するため、より深く広いネットワーク構造を採用</li>
+                    <li>CNNとLSTMを組み合わせることで特徴抽出と時系列パターン認識を統合</li>
+                </ul>
+                <p class="citation mt-2">出典: Towards Data Science - "Predicting Horse Racing Results with Deep Learning"; 人工知能学会論文 - 「部分再帰型ニューラルネットワークを用いた最適な競馬の...」</p>
+            </div>
+
+            <div class="warning-box mt-4">
+                <h4 class="font-bold mb-2"><i class="fas fa-exclamation-triangle mr-2"></i>注意点</h4>
+                <p>
+                    ディープラーニングは小規模データでは過学習しやすく、解釈性が低いという課題があります。競馬データは一般的に小〜中規模であるため、アンサンブル学習（LightGBM/XGBoost）の方が実用的なケースが多いです。
+                </p>
+            </div>
+
+            <!-- 2.5 強化学習アプローチ -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">2.5 強化学習アプローチ</h3>
+            
+            <p>
+                強化学習は、「どの馬が勝つか」ではなく、<strong>「どういう時に馬券を買うか・買わないか」という行動方針</strong>を学習する手法です。
+            </p>
+
+            <div class="warning-box mt-4">
+                <h4 class="font-bold mb-2"><i class="fas fa-robot mr-2"></i>強化学習の課題</h4>
+                <ul class="list-disc list-inside space-y-1">
+                    <li><strong>大量のデータと試行錯誤が必要：</strong>競馬データは週1回程度しか増えないため、学習に非常に長い時間がかかる</li>
+                    <li><strong>専門的な知識が必要：</strong>報酬設計、ハイパーパラメータ調整など、高度な技術が求められる</li>
+                    <li><strong>実用性が不明：</strong>教師あり学習と比較して、実際に優れた結果が得られるかは不明確</li>
+                </ul>
+                <p class="citation mt-2">出典: note.com - 「競馬AI作りは何が難しいのか」</p>
+            </div>
+
+            <p class="mt-4">
+                一方で、サッカーくじ（Toto）などのスポーツベッティングでは、強化学習によるバンクロール管理（資金配分）が有効であることが示されています。競馬でも、予測モデルと組み合わせたハイブリッドアプローチが今後期待されます。
+            </p>
+            <p class="citation">出典: Journal of Data Intelligence and AI Systems - "Reinforcement Learning-Based Bankroll Management for Football Lottery Investments"</p>
+        </section>
+
+        <!-- 3. ベッティング戦略と数理最適化 -->
+        <section id="betting-strategies" class="mb-12">
+            <h2 class="section-title text-3xl font-bold">3. ベッティング戦略と数理最適化</h2>
+
+            <p>
+                どれだけ予測精度が高くても、<strong>適切なベッティング戦略</strong>がなければ利益を最大化できません。数理最適化により、リスクを管理しながら長期的な資本成長を目指します。
+            </p>
+
+            <!-- 3.1 ケリー基準 -->
+            <h3 class="subsection-title text-2xl font-semibold">3.1 ケリー基準（Kelly Criterion）</h3>
+            
+            <div class="info-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-calculator mr-2"></i>ケリー基準とは</h4>
+                <p class="mb-2">
+                    ケリー基準は、<strong>長期的な資本成長率を最大化</strong>する最適なベットサイズを計算する数学的公式です。Edward O. Thorpが開発し、Bill Benterも採用しました。
+                </p>
+                <div class="formula">
+                    <strong>ケリー基準の公式：</strong><br>
+                    f* = (p × (O - 1) - (1 - p)) / (O - 1)
+                </div>
+                <p class="mt-2">
+                    <strong>f*</strong>: 賭けるべき資金の割合<br>
+                    <strong>p</strong>: 勝つ確率（推定勝率）<br>
+                    <strong>O</strong>: オッズ（配当倍率）
+                </p>
+            </div>
+
+            <div class="success-box mt-4">
+                <h4 class="font-bold text-lg mb-2">修正ケリー基準（Generalized Kelly Criterion）</h4>
+                <p class="mb-2">
+                    市場の非効率性と確率推定の不確実性を考慮した修正版：
+                </p>
+                <div class="formula">
+                    f* = (P(O - 1) - (1 - P)) / (O - 1)<br>
+                    さらに分散を考慮した調整を加える
+                </div>
+                <p class="mt-2">
+                    <strong>フルケリー vs ハーフケリー：</strong>フルケリーは破産リスクが高いため、実務では<strong>ハーフケリー（f* / 2）</strong>や<strong>クォーターケリー（f* / 4）</strong>が推奨されます。
+                </p>
+                <p class="citation mt-2">出典: marcoseduardoelias.com - "A Quantitative Model for Horse Race Betting"</p>
+            </div>
+
+            <h4 class="font-semibold mt-6 text-lg">実践例：ケリー基準の適用</h4>
+            <table class="mt-2">
+                <thead>
+                    <tr>
+                        <th>推定勝率（p）</th>
+                        <th>オッズ（O）</th>
+                        <th>期待値</th>
+                        <th>ケリー基準（f*）</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>25%</td>
+                        <td>5.0倍</td>
+                        <td>1.25</td>
+                        <td>6.25%</td>
+                    </tr>
+                    <tr>
+                        <td>20%</td>
+                        <td>3.0倍</td>
+                        <td>0.6</td>
+                        <td>0%（賭けない）</td>
+                    </tr>
+                    <tr>
+                        <td>30%</td>
+                        <td>4.0倍</td>
+                        <td>1.2</td>
+                        <td>10%</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- 3.2 ポートフォリオ理論の応用 -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">3.2 ポートフォリオ理論の応用（シャープレシオ最大化）</h3>
+            
+            <p>
+                現代ポートフォリオ理論（Modern Portfolio Theory）を競馬に応用し、<strong>リターンとリスクのバランス</strong>を最適化します。
+            </p>
+
+            <div class="formula mt-4">
+                <strong>最大化する目的関数（シャープレシオ）：</strong><br>
+                Maximize: E[p × ρ × f] / √(f<sup>T</sup> Σ f)<br><br>
+                制約条件: Σf<sub>i</sub> = 1, f<sub>i</sub> ≥ 0
+            </div>
+
+            <p class="mt-4">
+                <strong>p</strong>: 予測勝率ベクトル<br>
+                <strong>ρ</strong>: ネットリターンベクトル（オッズ - 1）<br>
+                <strong>f</strong>: 各馬券への投資比率<br>
+                <strong>Σ</strong>: 共分散行列（リスク）
+            </p>
+
+            <div class="info-box mt-4">
+                <h4 class="font-bold mb-2">Python実装例（scipy.optimize）</h4>
+                <div class="code-block">
+import scipy.optimize as sco<br><br>
+def sharpe_ratio(f, odds_matrix, pred):<br>
+&nbsp;&nbsp;expected_return = np.dot(pred * (odds_matrix - 1), f)<br>
+&nbsp;&nbsp;risk = np.sqrt(np.dot(f.T, np.dot(covariance_matrix, f)))<br>
+&nbsp;&nbsp;return -expected_return / risk  # 最小化問題として定式化<br><br>
+opts = sco.minimize(fun=sharpe_ratio, x0=x0, args=(odds_matrix, pred),<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;method="SLSQP", bounds=bounds, constraints=constraints)
+                </div>
+                <p class="citation mt-2">出典: Qiita - 「競馬予測モデルの結果を使った馬券最適化手法を検討しました。」</p>
+            </div>
+
+            <!-- 3.3 整数計画による最適化 -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">3.3 整数計画による最適化</h3>
+            
+            <p>
+                複数の馬券を組み合わせる際、<strong>どの馬が勝っても最低限の利益が出る</strong>ように賭け金を最適化する手法です。Python PuLPライブラリを使用して整数計画問題として定式化します。
+            </p>
+
+            <div class="success-box mt-4">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-check-circle mr-2"></i>問題設定</h4>
+                <ul class="list-disc list-inside space-y-1">
+                    <li><strong>変数：</strong>各馬に賭ける口数（整数）</li>
+                    <li><strong>目的関数：</strong>購入金額の合計を最小化</li>
+                    <li><strong>制約条件：</strong>どの馬が勝っても利益 ≥ 最低利益（例：500円）</li>
+                </ul>
+                <div class="code-block mt-2">
+import pulp<br><br>
+# 変数定義<br>
+buy = pulp.LpVariable.dicts("buy", horses, lowBound=0, cat=pulp.LpInteger)<br><br>
+# 目的関数：購入金額の最小化<br>
+problem = pulp.LpProblem(sense=pulp.LpMinimize)<br>
+total_buy = sum(unit_cost * buy[horse] for horse in horses)<br>
+problem += total_buy<br><br>
+# 制約：どの馬が勝っても最低利益以上<br>
+for horse in horses:<br>
+&nbsp;&nbsp;problem += unit_cost * buy[horse] * odds[horse] - total_buy >= min_profit
+                </div>
+                <p class="citation mt-2">出典: yamaimo.hatenablog.jp - 「競馬に関して最適化問題を解いた話。」</p>
+            </div>
+        </section>
+
+        <!-- 4. 実践的な戦略提案 -->
+        <section id="practical-strategies" class="mb-12">
+            <h2 class="section-title text-3xl font-bold">4. 実践的な戦略提案</h2>
+
+            <!-- 4.1 データ収集と前処理 -->
+            <h3 class="subsection-title text-2xl font-semibold">4.1 データ収集と前処理</h3>
+            
+            <h4 class="font-semibold mt-4 text-lg">データソース</h4>
+            <ul class="list-disc list-inside space-y-1">
+                <li><strong>netkeiba.com：</strong>最も包括的な日本競馬データベース（Web スクレイピングで取得可能）</li>
+                <li><strong>JRA-VAN：</strong>公式データAPI（月額880円）、高品質でCSV形式</li>
+                <li><strong>地方競馬：</strong>各主催者の公式サイト</li>
+            </ul>
+
+            <div class="info-box mt-4">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-cogs mr-2"></i>前処理のベストプラクティス</h4>
+                
+                <h5 class="font-semibold mt-3">1. 標準化（Standardization）</h5>
+                <p>各特徴量を平均0、分散1に変換することで、スケールの違いを解消します。</p>
+                <div class="formula">
+                    Z = (X - μ) / σ
+                </div>
+                <p class="mt-2">
+                    k近傍法（k-NN）での検証例：標準化なし（複勝回収率46%）→ 標準化あり（<strong>複勝回収率90.8%</strong>）
+                </p>
+                <p class="citation">出典: alphaimpact.co.jp - 「データの前処理だけで競馬は強くなる」</p>
+
+                <h5 class="font-semibold mt-4">2. レース内相対化（Zスコア・偏差値）</h5>
+                <p>
+                    機械学習モデルは各行を独立に処理するため、<strong>同じレース内の他馬との関係性</strong>を明示的に教える必要があります。
+                </p>
+                <ul class="list-disc list-inside mt-2 space-y-1">
+                    <li>走破タイムのZスコア：そのレースでの相対的な速さ</li>
+                    <li>上がり3ハロンのZスコア：末脚の比較</li>
+                    <li>位置取りのZスコア：脚質の相対的位置</li>
+                </ul>
+                <p class="mt-2">
+                    <strong>推奨：</strong>「生データ」「レース平均」「レース標準偏差」「Zスコア」の<strong>すべてをセットで投入</strong>することで、レース全体の分布形状をモデルに伝える。
+                </p>
+                <p class="citation">出典: note.com - 「競馬AI開発記 ②：特徴量設計について1」</p>
+
+                <h5 class="font-semibold mt-4">3. ターゲットエンコーディング</h5>
+                <p>
+                    騎手IDや種牡馬IDなどのカテゴリ変数を、目的変数（勝率、複勝率など）の統計値に置換します。
+                </p>
+                <div class="code-block mt-2">
+# 騎手IDを勝率に変換<br>
+jockey_win_rate = df.groupby('jockey_id')['win'].mean()<br>
+df['jockey_encoded'] = df['jockey_id'].map(jockey_win_rate)
+                </div>
+            </div>
+
+            <!-- 4.2 モデル構築のベストプラクティス -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">4.2 モデル構築のベストプラクティス</h3>
+            
+            <div class="warning-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-exclamation-circle mr-2"></i>時系列データ特有の注意点</h4>
+                
+                <h5 class="font-semibold mt-3">1. 時系列クロスバリデーション</h5>
+                <p>
+                    通常のランダム分割は<strong>リーク（未来の情報が訓練データに混入）</strong>を引き起こします。時系列順にデータを分割し、<strong>未来のデータで過去のデータを予測する</strong>検証を行います。
+                </p>
+                <ul class="list-disc list-inside mt-2 space-y-1">
+                    <li>Train-Test Splits（単純分割）は不十分</li>
+                    <li><strong>Multiple Train-Test Splits</strong>（複数期間での検証）を推奨</li>
+                    <li>ウォークフォワード検証（Walk-Forward Validation）が最も信頼性が高い</li>
+                </ul>
+                <p class="citation mt-2">出典: watanta.hatenablog.com - 「競馬予測システムでMLOps実践~回収率140%でぬか喜びした話」</p>
+
+                <h5 class="font-semibold mt-4">2. リーク防止</h5>
+                <p>以下のような未来の情報を誤って使用しないよう注意が必要です：</p>
+                <ul class="list-disc list-inside mt-2 space-y-1">
+                    <li>レース後に確定するオッズを特徴量に含めてしまう</li>
+                    <li>馬の最終成績（引退後の情報）を含めてしまう</li>
+                    <li>過去の集計時に未来のデータを含めてしまう</li>
+                </ul>
+            </div>
+
+            <div class="info-box mt-4">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-chart-bar mr-2"></i>評価指標</h4>
+                
+                <table class="mt-2">
+                    <thead>
+                        <tr>
+                            <th>指標</th>
+                            <th>説明</th>
+                            <th>目標値</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>的中率</strong></td>
+                            <td>予測が当たった割合</td>
+                            <td>単勝：8-10%<br>複勝：40%以上</td>
+                        </tr>
+                        <tr>
+                            <td><strong>回収率</strong></td>
+                            <td>（払戻金 / 投資額）× 100%</td>
+                            <td><strong>100%以上</strong>（利益が出る）</td>
+                        </tr>
+                        <tr>
+                            <td><strong>期待値</strong></td>
+                            <td>予測勝率 × オッズ</td>
+                            <td><strong>1.0以上</strong>の馬券のみ購入</td>
+                        </tr>
+                        <tr>
+                            <td><strong>シャープレシオ</strong></td>
+                            <td>リスク調整後リターン</td>
+                            <td>0.5以上が望ましい</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <p class="mt-4">
+                    <strong>重要：</strong>的中率が高くても回収率が低ければ意味がありません。<strong>回収率と期待値</strong>を最重視すべきです。
+                </p>
+            </div>
+
+            <!-- 4.3 推奨されるハイブリッドアプローチ -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">4.3 推奨されるハイブリッドアプローチ</h3>
+            
+            <div class="success-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-star mr-2"></i>最適な戦略の組み合わせ</h4>
+                
+                <ol class="list-decimal list-inside space-y-3 mt-2">
+                    <li>
+                        <strong>予測モデル：アンサンブル学習（LightGBM + XGBoost）</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>ランキング学習（lambdarank）で順位予測</li>
+                            <li>複数モデルの平均や加重平均で予測精度を向上</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>特徴量エンジニアリング</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>標準化 + レース内相対化（Zスコア）</li>
+                            <li>ターゲットエンコーディング</li>
+                            <li>過去3レースの統計情報</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>ベイズ更新による補正</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>血統データや馬場適性でモデル予測を更新</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>ベッティング戦略：修正ケリー基準</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>期待値 ≥ 1.0 の馬券のみ選択</li>
+                            <li>ハーフケリーまたはクォーターケリーで資金配分</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>リスク管理</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>1レースあたりの投資上限：総資金の5-10%</li>
+                            <li>損失制限（ストップロス）の設定</li>
+                        </ul>
+                    </li>
+                </ol>
+            </div>
+
+            <div class="info-box mt-4">
+                <h4 class="font-bold mb-2">実装フロー例</h4>
+                <ol class="list-decimal list-inside space-y-2">
+                    <li>データ取得：netkeiba.comからスクレイピング（毎週更新）</li>
+                    <li>前処理：標準化、相対化、ターゲットエンコーディング</li>
+                    <li>学習：LightGBM（lambdarank）でモデル構築</li>
+                    <li>予測：次週のレースに対して各馬の予測スコアを計算</li>
+                    <li>期待値計算：予測勝率 × 予測オッズ ≥ 1.0 の馬を抽出</li>
+                    <li>資金配分：ケリー基準で各馬券への投資額を決定</li>
+                    <li>購入実行：オートベット（可能な場合）またはメール通知</li>
+                    <li>結果記録：回収率、的中率、シャープレシオを継続的にモニタリング</li>
+                </ol>
+            </div>
+        </section>
+
+        <!-- 5. 既存の成功事例と実績 -->
+        <section id="case-studies" class="mb-12">
+            <h2 class="section-title text-3xl font-bold">5. 既存の成功事例と実績</h2>
+
+            <!-- 5.1 Bill Benterの事例 -->
+            <h3 class="subsection-title text-2xl font-semibold">5.1 Bill Benterの事例（香港競馬）</h3>
+            
+            <div class="success-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-award mr-2"></i>史上最も成功した競馬投資家</h4>
+                <ul class="list-disc list-inside space-y-2">
+                    <li><strong>収益：</strong>年間約10億ドル（累計では約10億ドル以上）</li>
+                    <li><strong>手法：</strong>多項ロジット回帰 + ケリー基準</li>
+                    <li><strong>変数：</strong>100以上（馬の直近タイム、体重、騎手データ、天候、枠順、調教データなど）</li>
+                    <li><strong>市場：</strong>香港競馬のパリミュチュエル方式</li>
+                    <li><strong>エッジ：</strong>市場オッズと真の確率の乖離を特定し、裁定取引を実行</li>
+                </ul>
+                <p class="mt-3">
+                    Benterのチームは、各馬の真の勝率を推定し、それが市場オッズと比較して20%なのに25%の確率があると判断した場合、エッジがあると見なして賭けを行いました。ケリー基準により、エッジの大きさと分散に応じて賭け金を決定し、破産を防ぎながら長期的な資金成長を実現しました。
+                </p>
+                <p class="citation mt-2">出典: Bloomberg - "The Gambler Who Cracked the Horse-Racing Code"; LinkedIn Pulse - "Bill Benter's Horse Racing Model"</p>
+            </div>
+
+            <!-- 5.2 日本での実践例 -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">5.2 日本での実践例</h3>
+            
+            <table class="mt-4">
+                <thead>
+                    <tr>
+                        <th>事例</th>
+                        <th>手法</th>
+                        <th>実績</th>
+                        <th>出典</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>東京競馬場 2019年</td>
+                        <td>LightGBM多クラス分類</td>
+                        <td>複勝的中率70%、回収率168%</td>
+                        <td>Qiita - 「機械学習で競馬の回収率100%超え」</td>
+                    </tr>
+                    <tr>
+                        <td>重賞レース 2023年</td>
+                        <td>LightGBM + Stan/Rベイズ</td>
+                        <td>3連複回収率213%（モデルC）</td>
+                        <td>Qiita - 「競馬AIの自作と検証」</td>
+                    </tr>
+                    <tr>
+                        <td>新潟芝1000m</td>
+                        <td>ゼロファクター戦略</td>
+                        <td>7枠・8枠で回収率100%超え</td>
+                        <td>note - 「回収率100%超えの合理的な条件」</td>
+                    </tr>
+                    <tr>
+                        <td>福島ダート1150m</td>
+                        <td>ボラティリティ戦略</td>
+                        <td>2枠単位で回収率104.2%</td>
+                        <td>note - 「回収率100%超えの合理的な条件」</td>
+                    </tr>
+                    <tr>
+                        <td>全レース 2020年9月</td>
+                        <td>MLOps + LightGBM</td>
+                        <td>初期：回収率140%<br>（後に検証不足と判明）</td>
+                        <td>watanta.hatenablog.com - 「MLOps実践」</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="warning-box mt-4">
+                <h4 class="font-bold mb-2"><i class="fas fa-info-circle mr-2"></i>成功事例の解釈について</h4>
+                <p>
+                    上記の成功事例は、<strong>特定の期間・条件下</strong>での結果です。特に短期間（1ヶ月〜1年）の検証では、偶然の要素が大きく影響します。長期的な検証（3年以上）と、複数の市場・条件での再現性が重要です。
+                </p>
+            </div>
+
+            <h4 class="font-semibold mt-6 text-lg">AI競馬予測サービスの現状</h4>
+            <p>日本市場では以下のようなAI競馬予測サービスが存在します：</p>
+            <ul class="list-disc list-inside space-y-1 mt-2">
+                <li><strong>netkeiba AI：</strong>中央競馬最大手メディア、月額550円〜</li>
+                <li><strong>オッズパーク：</strong>地方競馬・競輪・オートレース対応、無料でAI推奨馬を確認可能</li>
+                <li><strong>JRA-VAN：</strong>公式データAPI、月額880円、上級者向け（自分でモデル構築）</li>
+            </ul>
+            <p class="mt-2">
+                これらのサービスの的中率は<strong>複勝で60-70%</strong>程度ですが、これは人気上位3頭のうち1頭が3着以内に入る確率であり、AI特有の成果とは言えません。重要なのは<strong>回収率</strong>であり、長期的に100%を超え続けるサービスは稀です。
+            </p>
+            <p class="citation">出典: genai-ai.co.jp - 「AI競馬予測とは？仕組み・おすすめサービス3選」</p>
+        </section>
+
+        <!-- 6. 課題と限界 -->
+        <section id="challenges" class="mb-12">
+            <h2 class="section-title text-3xl font-bold">6. 課題と限界</h2>
+
+            <!-- 6.1 データの限界 -->
+            <h3 class="subsection-title text-2xl font-semibold">6.1 データの限界</h3>
+            
+            <div class="warning-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-database mr-2"></i>小規模データ問題</h4>
+                <ul class="list-disc list-inside space-y-1">
+                    <li><strong>データ量の制約：</strong>中央競馬は週に約36レース、年間約3,600レース。画像認識などと比較すると極めて少ない。</li>
+                    <li><strong>ディープラーニングの限界：</strong>小規模データではディープラーニングは過学習しやすく、LightGBM/XGBoostなどの木ベースモデルの方が有効。</li>
+                    <li><strong>ラベルの不均衡：</strong>1着は1頭のみ（他は負け）。不均衡データへの対処が必要。</li>
+                </ul>
+            </div>
+
+            <!-- 6.2 市場の非効率性 -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">6.2 市場の非効率性と控除率</h3>
+            
+            <div class="info-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-percent mr-2"></i>パリミュチュエル方式の影響</h4>
+                <p class="mb-2">
+                    日本競馬（中央・地方）はパリミュチュエル方式を採用しており、<strong>控除率（テラ銭）が20-30%</strong>設定されています。これは参加者全体の平均回収率が70-80%に収斂することを意味します。
+                </p>
+                <ul class="list-disc list-inside space-y-1">
+                    <li>単勝・複勝：控除率約20%</li>
+                    <li>馬連・ワイド：控除率約22.5%</li>
+                    <li>3連単：控除率約27.5%</li>
+                </ul>
+                <p class="mt-2">
+                    つまり、<strong>控除率を超えて継続的に利益を出すには、市場平均より30%以上優れた予測</strong>が必要です。
+                </p>
+            </div>
+
+            <div class="warning-box mt-4">
+                <h4 class="font-bold mb-2"><i class="fas fa-chart-line mr-2"></i>オッズの変動</h4>
+                <p>
+                    予測オッズと確定オッズの乖離により、期待値が変動します。特にAI予測が普及すると、オッズの歪みが減少し、エッジが小さくなる可能性があります。
+                </p>
+                <p class="citation mt-2">参照: note.com - 「予想オッズと確定オッズの変動率から期待値あり馬を見つける」</p>
+            </div>
+
+            <!-- 6.3 過学習のリスク -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">6.3 過学習のリスク</h3>
+            
+            <div class="warning-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-exclamation-triangle mr-2"></i>時系列データ特有の問題</h4>
+                <ul class="list-disc list-inside space-y-2">
+                    <li>
+                        <strong>過去のパターンが未来に適用できない：</strong>競馬環境は変化します（新馬の登場、騎手の引退、コース改修など）。過去データへの過度な最適化は危険です。
+                    </li>
+                    <li>
+                        <strong>評価方法の不適切性：</strong>単一期間（1ヶ月など）での検証は偶然の要素が大きく、140%の回収率が単なるラッキーである可能性があります。Multiple Train-Test Splitsやウォークフォワード検証が必須です。
+                    </li>
+                    <li>
+                        <strong>リークの危険性：</strong>未来の情報（確定オッズ、最終成績など）を誤って使用すると、実運用で全く機能しないモデルになります。
+                    </li>
+                </ul>
+            </div>
+
+            <div class="info-box mt-4">
+                <h4 class="font-bold mb-2">対策</h4>
+                <ul class="list-disc list-inside space-y-1">
+                    <li>時系列クロスバリデーション（Time Series Cross-Validation）の徹底</li>
+                    <li>アーリーストッピング（Early Stopping）で過学習を防ぐ</li>
+                    <li>正則化（L1/L2 Regularization）の適用</li>
+                    <li>複数モデルのアンサンブルで汎化性能を向上</li>
+                    <li>継続的なモデル更新（週次または月次）</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- 7. 最適な戦略の提案 -->
+        <section id="optimal-strategy" class="mb-12">
+            <h2 class="section-title text-3xl font-bold">7. 最適な戦略の提案</h2>
+
+            <p class="mb-4">
+                以上の調査結果を踏まえ、中央競馬および地方競馬において予測精度を向上させ、最適なベット戦略を立てるための<strong>実践的な推奨戦略</strong>を提案します。
+            </p>
+
+            <!-- 7.1 短期戦略 -->
+            <h3 class="subsection-title text-2xl font-semibold">7.1 短期戦略（3-6ヶ月）</h3>
+            
+            <div class="success-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-rocket mr-2"></i>即座に実装可能な戦略</h4>
+                
+                <ol class="list-decimal list-inside space-y-3">
+                    <li>
+                        <strong>期待値フィルタリング</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>予測勝率 × オッズ ≥ 1.0 の馬券のみ購入</li>
+                            <li>さらに、予測1位と2位の差が0.1以上の場合のみ購入（自信度フィルタ）</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>ゼロファクター戦略</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>新潟芝1000m：7枠・8枠の複勝</li>
+                            <li>中京芝1200m：1枠・2枠かつ出走頭数13頭以上かつ2番人気以下</li>
+                            <li>福島ダート1150m：出走頭数13頭以上かつ3番人気以上かつ単勝オッズ10倍以上</li>
+                        </ul>
+                        <p class="citation ml-6 mt-1">出典: note.com - 「回収率100%超えの合理的な条件」</p>
+                    </li>
+                    <li>
+                        <strong>資金配分</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>総資金の5%以内を1レースに投資</li>
+                            <li>期待値に応じてハーフケリーで配分</li>
+                        </ul>
+                    </li>
+                </ol>
+            </div>
+
+            <!-- 7.2 中長期戦略 -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">7.2 中長期戦略（6ヶ月〜2年）</h3>
+            
+            <div class="success-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-chart-line mr-2"></i>本格的なAIモデル構築</h4>
+                
+                <ol class="list-decimal list-inside space-y-3">
+                    <li>
+                        <strong>データ基盤の構築</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>netkeiba.comから過去5年分のデータをスクレイピング</li>
+                            <li>週次でデータ更新パイプラインを自動化（Jenkins, Airflowなど）</li>
+                            <li>データバリデーション（欠損値チェック、異常値検出）を実装</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>アンサンブルモデルの構築</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>LightGBM（lambdarank）+ XGBoost（lambdarank）</li>
+                            <li>2つのモデルの予測を平均または加重平均</li>
+                            <li>時系列クロスバリデーションで汎化性能を検証</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>特徴量エンジニアリング</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>標準化 + レース内Zスコア</li>
+                            <li>ターゲットエンコーディング（騎手、調教師、種牡馬）</li>
+                            <li>過去3レースの統計（平均順位、平均タイム、上がり3ハロン）</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>ベイズ更新の統合</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>血統データでモデル予測を補正</li>
+                            <li>馬場適性（芝/ダート、距離）をベイズ因子で反映</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>ベッティング最適化</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>修正ケリー基準で資金配分</li>
+                            <li>シャープレシオ最大化（scipy.optimize）</li>
+                            <li>複数馬券の組み合わせ最適化（整数計画）</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>継続的なモニタリングとMLOps</strong>
+                        <ul class="list-disc list-inside ml-6 mt-1">
+                            <li>回収率、的中率、シャープレシオをDashboard化（Dash, Streamlit）</li>
+                            <li>モデルドリフト検出（予測精度の低下を監視）</li>
+                            <li>月次でモデル再学習</li>
+                        </ul>
+                    </li>
+                </ol>
+            </div>
+
+            <!-- 7.3 リスク管理 -->
+            <h3 class="subsection-title text-2xl font-semibold mt-8">7.3 リスク管理</h3>
+            
+            <div class="warning-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-shield-alt mr-2"></i>破産リスクの回避</h4>
+                
+                <ul class="list-disc list-inside space-y-2">
+                    <li>
+                        <strong>資金配分ルール：</strong>
+                        <ul class="list-circle list-inside ml-6 mt-1">
+                            <li>1レースあたりの投資上限：総資金の5-10%</li>
+                            <li>1日あたりの投資上限：総資金の20%</li>
+                            <li>フルケリーではなくハーフケリーまたはクォーターケリーを使用</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>ストップロス（損失制限）：</strong>
+                        <ul class="list-circle list-inside ml-6 mt-1">
+                            <li>月次損失が総資金の20%に達したら、投資を一時停止</li>
+                            <li>モデルの再評価と改善を実施</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>分散投資：</strong>
+                        <ul class="list-circle list-inside ml-6 mt-1">
+                            <li>単勝だけでなく、複勝、馬連、ワイドなど複数の馬券種に分散</li>
+                            <li>中央競馬と地方競馬の両方に投資</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong>心理的バイアスの排除：</strong>
+                        <ul class="list-circle list-inside ml-6 mt-1">
+                            <li>感情に流されず、モデルの推奨に従う</li>
+                            <li>「追い上げ」「熱くなる」を避ける</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- 8. 結論と今後の展望 -->
+        <section id="conclusion" class="mb-12">
+            <h2 class="section-title text-3xl font-bold">8. 結論と今後の展望</h2>
+
+            <div class="success-box">
+                <h3 class="font-bold text-xl mb-3"><i class="fas fa-check-circle mr-2"></i>主要な結論</h3>
+                
+                <ol class="list-decimal list-inside space-y-3">
+                    <li>
+                        <strong>回収率100%超えは実現可能</strong><br>
+                        適切なデータサイエンス手法（アンサンブル学習、ベイズ統計、ケリー基準）を組み合わせることで、長期的に回収率100%を超えることは理論的・実践的に可能です。Bill Benterの事例はその証明です。
+                    </li>
+                    <li>
+                        <strong>最も効果的なアプローチ</strong><br>
+                        現時点では、<strong>LightGBM/XGBoostのアンサンブル学習 + ランキング学習</strong>が最も高い予測精度を達成しています。ディープラーニングは小規模データでは過学習しやすく、実用性が限定的です。
+                    </li>
+                    <li>
+                        <strong>特徴量エンジニアリングの重要性</strong><br>
+                        標準化とレース内相対化（Zスコア）だけで回収率が2倍に向上した事例があります。適切な前処理は予測モデルよりも重要な場合があります。
+                    </li>
+                    <li>
+                        <strong>ベッティング戦略の重要性</strong><br>
+                        どれだけ予測精度が高くても、適切な資金配分（ケリー基準）がなければ利益を最大化できません。リスク管理と組み合わせることで、長期的な資本成長を目指します。
+                    </li>
+                    <li>
+                        <strong>課題と限界の認識</strong><br>
+                        控除率（20-30%）、市場の非効率性の減少、過学習のリスクなど、多くの課題があります。「確実に儲かる」システムは存在せず、継続的な改善と適応が必要です。
+                    </li>
+                </ol>
+            </div>
+
+            <h3 class="subsection-title text-2xl font-semibold mt-8">今後の展望</h3>
+            
+            <div class="info-box">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-telescope mr-2"></i>技術的進化の可能性</h4>
+                
+                <ul class="list-disc list-inside space-y-2">
+                    <li>
+                        <strong>Transformer モデルの応用：</strong>
+                        自然言語処理で成功したTransformerアーキテクチャを時系列データに適用する研究が進んでいます。競馬の過去レースをシーケンスとして扱い、Attention機構で重要なレースを自動抽出する可能性があります。
+                    </li>
+                    <li>
+                        <strong>グラフニューラルネットワーク（GNN）：</strong>
+                        馬、騎手、調教師の関係性をグラフとして表現し、GNNで学習する手法が研究されています。血統ネットワークとの統合も期待されます。
+                    </li>
+                    <li>
+                        <strong>量子コンピューティング：</strong>
+                        組み合わせ最適化（馬券の最適購入組み合わせ）において、量子アニーリングが従来手法を超える可能性があります。
+                    </li>
+                    <li>
+                        <strong>リアルタイムデータの統合：</strong>
+                        レース直前の馬の挙動（パドック映像の画像認識）やジョッキーの表情分析など、非構造化データの活用が進む可能性があります。
+                    </li>
+                    <li>
+                        <strong>説明可能AI（XAI）：</strong>
+                        SHAP値やLIMEなどの手法により、モデルの予測根拠を可視化し、ドメイン知識との融合を深めることができます。
+                    </li>
+                </ul>
+            </div>
+
+            <div class="info-box mt-4">
+                <h4 class="font-bold text-lg mb-2"><i class="fas fa-users mr-2"></i>コミュニティと知識共有</h4>
+                <p class="mb-2">
+                    競馬データサイエンスのコミュニティは成長しており、以下のプラットフォームで知識共有が活発です：
+                </p>
+                <ul class="list-disc list-inside space-y-1">
+                    <li>Qiita, note, Zennでの技術記事投稿</li>
+                    <li>GitHubでのオープンソースプロジェクト（例：gmalbert/horse-racing-predictions）</li>
+                    <li>Kaggleでの競馬予測コンペティション</li>
+                    <li>Reddit (r/algobetting, r/horseracing) での議論</li>
+                </ul>
+            </div>
+
+            <div class="success-box mt-8">
+                <h3 class="font-bold text-xl mb-3"><i class="fas fa-flag-checkered mr-2"></i>最終提言</h3>
+                <p class="mb-3">
+                    競馬予測におけるデータサイエンスは、<strong>単なる「当たる・当たらない」のギャンブルから、期待値に基づく合理的な投資判断</strong>へとパラダイムシフトを起こしつつあります。しかし、以下の点を肝に銘じる必要があります：
+                </p>
+                <ul class="list-disc list-inside space-y-2">
+                    <li><strong>長期的視点：</strong>短期的な成功（1ヶ月で回収率140%など）は偶然の可能性が高い。最低3年以上の継続的な検証が必要。</li>
+                    <li><strong>継続的な改善：</strong>競馬環境は変化するため、モデルも継続的に更新・改善する必要がある。</li>
+                    <li><strong>リスク管理の徹底：</strong>どれだけ優れたモデルでも、破産リスクを完全にゼロにはできない。資金配分とストップロスは必須。</li>
+                    <li><strong>学習の価値：</strong>たとえ利益が出なくても、データサイエンスの実践的スキルを磨く絶好の機会となる。</li>
+                </ul>
+                <p class="mt-3 font-semibold">
+                    本報告書が、競馬予測におけるデータサイエンスの理解を深め、実践的な戦略構築の一助となることを願っています。
+                </p>
+            </div>
+        </section>
+
+        <!-- 参考文献 -->
+        <section class="mb-12">
+            <h2 class="section-title text-3xl font-bold">参考文献</h2>
+            
+            <div class="bg-gray-50 p-6 rounded-lg">
+                <h3 class="font-bold text-lg mb-3">主要な情報源</h3>
+                
+                <ol class="list-decimal list-inside space-y-2 text-sm">
+                    <li>Bloomberg (2018). "The Gambler Who Cracked the Horse-Racing Code" - Bill Benterの事例</li>
+                    <li>marcoseduardoelias.com (2026). "A Quantitative Model for Horse Race Betting" - 統計モデリングと最適化</li>
+                    <li>Medium (2026). "High-Precision Prediction of Horse Racing Durations Using Ensemble Machine Learning Models" - アンサンブル学習</li>
+                    <li>IJISAE. "Horse Race Results Prediction Using Machine Learning" - 機械学習手法の比較</li>
+                    <li>人工知能学会論文 (2023). "部分再帰型ニューラルネットワークを用いた最適な競馬の..." - RNN/LSTM</li>
+                    <li>Towards Data Science. "Predicting Horse Racing Results with Deep Learning" - ディープラーニング</li>
+                    <li>note.com. 「競馬AIで本当に重視すべきデータは、全体の4%しかなかった」 - 期待値最適化</li>
+                    <li>note.com. 「PythonとNotionで再現するケリー基準」 - ケリー基準の実践</li>
+                    <li>walkintheforest.net. 「競馬AI：血統✖️ベイズ推定で予想確率を向上！」 - ベイズ統計</li>
+                    <li>Qiita. 「機械学習で競馬の回収率100%超えを達成した話」 - LightGBM実装</li>
+                    <li>Qiita. 「競馬AIの自作と今年のレースで検証してみた」 - Stan/Rベイズモデリング</li>
+                    <li>Qiita. 「競馬予測モデルの結果を使った馬券最適化手法を検討しました。」 - シャープレシオ最大化</li>
+                    <li>yamaimo.hatenablog.jp. 「競馬に関して最適化問題を解いた話。」 - 整数計画</li>
+                    <li>alphaimpact.co.jp. 「データの前処理だけで競馬は強くなる」 - 標準化の重要性</li>
+                    <li>note.com. 「競馬AI開発記 ②：特徴量設計について1」 - レース内相対化</li>
+                    <li>issoh.co.jp. 「競馬予想AIの特徴量一覧｜LightGBMランキング学習の実装」 - ランキング学習</li>
+                    <li>note.com. 「回収率100%超えの合理的な条件」 - ゼロファクター戦略</li>
+                    <li>watanta.hatenablog.com. 「競馬予測システムでMLOps実践~回収率140%でぬか喜びした話」 - MLOpsと検証方法</li>
+                    <li>genai-ai.co.jp. 「AI競馬予測とは？仕組み・おすすめサービス3選」 - AIサービスの現状</li>
+                    <li>LinkedIn Pulse. "Bill Benter's Horse Racing Model and Its Lessons for Trading" - Benterの教訓</li>
+                </ol>
+            </div>
+        </section>
+
+        <!-- フッター -->
+        <footer class="mt-12 pt-6 border-t border-gray-300 text-center text-sm text-gray-600">
+            <p><i class="fas fa-calendar-alt mr-2"></i>作成日: 2026年9月</p>
+            <p class="mt-2"><i class="fas fa-info-circle mr-2"></i>本報告書は調査研究目的で作成されました。投資判断は自己責任で行ってください。</p>
+        </footer>
+    </div>
+</body>
+</html>

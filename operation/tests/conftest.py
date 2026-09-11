@@ -68,6 +68,10 @@ def make_results(n_races: int = 12, start_day: int = 20, seed: int = 0,
                 "baba_code": baba, "distance": 1200 + 200 * (i % 4),
                 "finish_pos": int(finish[k]), "is_win": int(finish[k] == 1),
                 "time_sec": 72.0 + float(finish[k]) * 0.2,
+                # 上がり3F。これが無いと h_pace_bal_last3 が運用側のテストでだけ
+                # 全行 NaN になり、「その列が存在しない世界」で通ってしまう。
+                # 実データの確定層には入っている（1998-2009 は欠測が多い）。
+                "last3f": float(38.5 + finish[k] * 0.15 + rng.normal(0, 0.2)),
                 "speed_index": float(-finish[k] * 0.3 + rng.normal(0, 0.1)),
             })
     df = pd.DataFrame(rows)

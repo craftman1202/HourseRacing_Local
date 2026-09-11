@@ -694,6 +694,13 @@ def cmd_evaluate_final(args: argparse.Namespace) -> int:
     pd.DataFrame(payload["tripwires"]).to_csv(artifacts / "oos_guards.csv", index=False)
     print(f"\n→ {artifacts / 'oos_metrics.json'}")
 
+    # 行単位の予測も残す。OOS の開封は1回きりなので、そのとき出た予測を捨てると
+    # ロック区間の較正を見るためだけに再開封する羽目になる（ランブック §7 の申し送り）。
+    if res.predictions is not None and len(res.predictions):
+        oos_pred = artifacts / "oos_predictions.parquet"
+        res.predictions.to_parquet(oos_pred, index=False)
+        print(f"→ {oos_pred}（{len(res.predictions):,} 行）")
+
     fired = [t.id for t in res.tripwires if t.fired]
     if fired:
         print(f"ガード発火: {fired}。publish しないでください。", file=sys.stderr)
@@ -808,21 +815,33 @@ def _run_trackb(oof: pd.DataFrame, artifacts: Path,
     model = ResidualOddsModel().fit(d, p_a, q)
     p_b = model.predict_proba(d, p_a, q)
 
+    # Benter 混合モデル（Research.md §2.1 / 設計書 §13.1-4）。α1 も推定する診断版。
+    # 出荷判断には使わない。α1 が 1 から離れていればトラックA の較正ずれを疑う。
+    benter = ResidualOddsModel(free_offset_coef=True).fit(d, p_a, q)
+    p_bt = benter.predict_proba(d, p_a, q)
+
     y, rid, pos = (d["is_win"].to_numpy(), d["race_id"].to_numpy(),
                    d["finish_pos"].to_numpy())
     rows = [
         {"model": f"トラックA（{base}）", **M.summary(p_a, y, pos, rid)},
         {"model": "トラックB（残差モデル）", **M.summary(p_b, y, pos, rid)},
+        {"model": "トラックB（Benter α1自由・診断）", **M.summary(p_bt, y, pos, rid)},
         {"model": "市場のみ", **M.summary(q, y, pos, rid)},
     ]
     rep = model.report(d)
+    brep = benter.report(d)
     (artifacts / "trackb.json").write_text(json.dumps({
         "n_races": rep.n_races, "eta": rep.eta, "alpha": rep.alpha,
         "n_estimated_params": rep.n_estimated_params,
         "underpowered": rep.underpowered, "notes": rep.notes,
+        "benter_diagnostic": {
+            "alpha1": brep.alpha1, "eta": brep.eta,
+            "n_estimated_params": brep.n_estimated_params, "notes": brep.notes,
+        },
         "metrics": rows,
     }, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    print(f"\n=== トラックB（{rep.n_races:,} レース, η={rep.eta:.4f}）===")
+    print(f"\n=== トラックB（{rep.n_races:,} レース, η={rep.eta:.4f}, "
+          f"Benter α1={brep.alpha1:.4f}）===")
     print(pd.DataFrame(rows).set_index("model")[["race_nll", "top1"]].round(4).to_string())
 
 

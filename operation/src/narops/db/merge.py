@@ -31,6 +31,9 @@ OPTIONAL_COLUMNS = [
     "jockey_record", "all_record", "dirt_left_record", "dirt_right_record",
     "track_record", "dist_record", "best_time", "best_time_good",
     "turn", "baba_condition",
+    # 上がり3F。1998-2009 は8割方欠測、2010 以降は約12%欠測。無い行があるのが
+    # 正常なので必須にはしない（h_pace_bal_last3 がその行で NULL になるだけ）。
+    "last3f",
 ]
 
 
