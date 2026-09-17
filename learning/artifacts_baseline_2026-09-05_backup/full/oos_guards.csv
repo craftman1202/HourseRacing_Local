@@ -1,0 +1,3 @@
+id,fired,severity,observed,message
+RF-01,False,Blocker,0.4441980783444198,OOS Top-1 が 60% 超。着順情報の混入がほぼ確実です。
+RF-02,False,Blocker,1.6096718771558607,OOS レース内 NLL が 1.20 未満。着順情報の混入がほぼ確実です。

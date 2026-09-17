@@ -1,0 +1,6 @@
+fold,n_train,n_valid,n_selected,selected
+1,136050,14675,6,"h_top3rate_prior, h_winrate_prior, j_winrate_shrunk, h_si_last3, h_starts_prior, h_wins_prior"
+2,152547,15086,6,"h_top3rate_prior, h_winrate_prior, j_winrate_shrunk, h_si_last3, h_starts_prior, h_wins_prior"
+3,167937,14261,6,"h_top3rate_prior, h_winrate_prior, j_winrate_shrunk, h_starts_prior, h_si_last3, h_wins_prior"
+4,184347,14412,5,"h_top3rate_prior, h_winrate_prior, j_winrate_shrunk, h_starts_prior, h_si_last3"
+5,199951,15465,6,"h_top3rate_prior, h_winrate_prior, j_winrate_shrunk, h_starts_prior, h_wins_prior, h_si_last3"

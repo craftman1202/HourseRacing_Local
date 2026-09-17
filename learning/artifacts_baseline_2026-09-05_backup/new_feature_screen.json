@@ -1,0 +1,346 @@
+{
+  "setting": {
+    "n_races": 60000,
+    "n_rows": 605963,
+    "period": [
+      "2022-04-10 00:00:00",
+      "2026-09-02 00:00:00"
+    ],
+    "n_null_runs": 10,
+    "note": "本番の特徴量選択（fold 内 Null Importance + RFE）の代替ではない。追加列の順位の目安を出すためのスクリーニング"
+  },
+  "n_survivors": 21,
+  "n_candidates": 38,
+  "new_features": [
+    {
+      "feature": "jt_winrate_wilson",
+      "actual_gain": 54284.85480117798,
+      "null_p95": 4548.800806617733,
+      "null_mean": 2098.54079580307,
+      "survives": true,
+      "rank": 3
+    },
+    {
+      "feature": "h_pace_bal_last3",
+      "actual_gain": 919.7474002838135,
+      "null_p95": 3143.8546138286592,
+      "null_mean": 2377.4711272239683,
+      "survives": false,
+      "rank": 26
+    },
+    {
+      "feature": "jt_starts_prior",
+      "actual_gain": 850.167308807373,
+      "null_p95": 2181.035845994949,
+      "null_mean": 1771.3654813289643,
+      "survives": false,
+      "rank": 27
+    }
+  ],
+  "all": [
+    {
+      "feature": "h_top3rate_prior",
+      "actual_gain": 182688.86401367188,
+      "null_p95": 2849.258864784239,
+      "null_mean": 1419.9529910087585,
+      "survives": true,
+      "rank": 1
+    },
+    {
+      "feature": "h_si_last3",
+      "actual_gain": 84258.53389549255,
+      "null_p95": 2068.3000100135805,
+      "null_mean": 1812.846906709671,
+      "survives": true,
+      "rank": 2
+    },
+    {
+      "feature": "jt_winrate_wilson",
+      "actual_gain": 54284.85480117798,
+      "null_p95": 4548.800806617733,
+      "null_mean": 2098.54079580307,
+      "survives": true,
+      "rank": 3
+    },
+    {
+      "feature": "h_winrate_prior",
+      "actual_gain": 39189.306089401245,
+      "null_p95": 1455.3994036674499,
+      "null_mean": 1054.5174476623536,
+      "survives": true,
+      "rank": 4
+    },
+    {
+      "feature": "j_winrate_shrunk",
+      "actual_gain": 31958.01330757141,
+      "null_p95": 4826.959360361095,
+      "null_mean": 2358.852824020386,
+      "survives": true,
+      "rank": 5
+    },
+    {
+      "feature": "d_track_winrate",
+      "actual_gain": 30779.926824569702,
+      "null_p95": 3611.5340470314,
+      "null_mean": 1680.1849385261535,
+      "survives": true,
+      "rank": 6
+    },
+    {
+      "feature": "d_track_starts",
+      "actual_gain": 24483.87219810486,
+      "null_p95": 1755.3673900127405,
+      "null_mean": 1054.1430130004883,
+      "survives": true,
+      "rank": 7
+    },
+    {
+      "feature": "d_pair_winrate",
+      "actual_gain": 18190.989780426025,
+      "null_p95": 3506.2263822555506,
+      "null_mean": 1554.3217348098756,
+      "survives": true,
+      "rank": 8
+    },
+    {
+      "feature": "d_all_starts",
+      "actual_gain": 14494.847557067871,
+      "null_p95": 1668.0090016841887,
+      "null_mean": 1263.7168037414551,
+      "survives": true,
+      "rank": 9
+    },
+    {
+      "feature": "h_starts_prior",
+      "actual_gain": 8262.559326171875,
+      "null_p95": 1625.4430346965783,
+      "null_mean": 1043.576640176773,
+      "survives": true,
+      "rank": 10
+    },
+    {
+      "feature": "class_level",
+      "actual_gain": 7461.7613735198975,
+      "null_p95": 190.89991459846482,
+      "null_mean": 88.48670377731324,
+      "survives": true,
+      "rank": 11
+    },
+    {
+      "feature": "t_winrate_shrunk",
+      "actual_gain": 7401.6671142578125,
+      "null_p95": 2415.968734145164,
+      "null_mean": 1793.418096113205,
+      "survives": true,
+      "rank": 12
+    },
+    {
+      "feature": "d_best_speed",
+      "actual_gain": 6032.194589614868,
+      "null_p95": 1777.6411708354947,
+      "null_mean": 1416.1851768493652,
+      "survives": true,
+      "rank": 13
+    },
+    {
+      "feature": "log_prize",
+      "actual_gain": 5723.478572845459,
+      "null_p95": 7813.4256196022,
+      "null_mean": 2519.3398589134217,
+      "survives": false,
+      "rank": 14
+    },
+    {
+      "feature": "s_winrate_shrunk",
+      "actual_gain": 5063.726884841919,
+      "null_p95": 5829.243413496018,
+      "null_mean": 2769.072825050354,
+      "survives": false,
+      "rank": 15
+    },
+    {
+      "feature": "d_dist_winrate",
+      "actual_gain": 4570.63812828064,
+      "null_p95": 1390.638334417343,
+      "null_mean": 1146.2263171195984,
+      "survives": true,
+      "rank": 16
+    },
+    {
+      "feature": "d_all_top3rate",
+      "actual_gain": 3924.1288928985596,
+      "null_p95": 3354.378453731537,
+      "null_mean": 1807.5189183712005,
+      "survives": true,
+      "rank": 17
+    },
+    {
+      "feature": "d_extra_starts",
+      "actual_gain": 3651.2680168151855,
+      "null_p95": 935.7523611068724,
+      "null_mean": 674.0101449489594,
+      "survives": true,
+      "rank": 18
+    },
+    {
+      "feature": "draw_rel",
+      "actual_gain": 3381.1550064086914,
+      "null_p95": 113847.35153679847,
+      "null_mean": 86627.29151248932,
+      "survives": false,
+      "rank": 19
+    },
+    {
+      "feature": "d_turn_starts",
+      "actual_gain": 2963.108295440674,
+      "null_p95": 2169.6965667724603,
+      "null_mean": 1373.0339375972749,
+      "survives": true,
+      "rank": 20
+    },
+    {
+      "feature": "d_best_speed_good",
+      "actual_gain": 2531.418909072876,
+      "null_p95": 1687.8406261920925,
+      "null_mean": 1348.4065510749817,
+      "survives": true,
+      "rank": 21
+    },
+    {
+      "feature": "h_best_si_prior",
+      "actual_gain": 2122.3258113861084,
+      "null_p95": 2173.25565161705,
+      "null_mean": 1741.6081072807312,
+      "survives": false,
+      "rank": 22
+    },
+    {
+      "feature": "d_dist_starts",
+      "actual_gain": 2003.2014122009277,
+      "null_p95": 3225.754997539517,
+      "null_mean": 1234.1268939971924,
+      "survives": false,
+      "rank": 23
+    },
+    {
+      "feature": "d_pair_starts",
+      "actual_gain": 1505.2857875823975,
+      "null_p95": 1310.9986041545867,
+      "null_mean": 915.0433221817017,
+      "survives": true,
+      "rank": 24
+    },
+    {
+      "feature": "h_days_since_prev",
+      "actual_gain": 1256.5500030517578,
+      "null_p95": 1710.1391188621517,
+      "null_mean": 1360.5124908447265,
+      "survives": false,
+      "rank": 25
+    },
+    {
+      "feature": "h_pace_bal_last3",
+      "actual_gain": 919.7474002838135,
+      "null_p95": 3143.8546138286592,
+      "null_mean": 2377.4711272239683,
+      "survives": false,
+      "rank": 26
+    },
+    {
+      "feature": "jt_starts_prior",
+      "actual_gain": 850.167308807373,
+      "null_p95": 2181.035845994949,
+      "null_mean": 1771.3654813289643,
+      "survives": false,
+      "rank": 27
+    },
+    {
+      "feature": "d_turn_winrate",
+      "actual_gain": 782.6369018554688,
+      "null_p95": 2150.3905968666077,
+      "null_mean": 1449.8536246299743,
+      "survives": false,
+      "rank": 28
+    },
+    {
+      "feature": "t_starts_prior",
+      "actual_gain": 714.0682964324951,
+      "null_p95": 5414.602373385424,
+      "null_mean": 2449.5013908863066,
+      "survives": false,
+      "rank": 29
+    },
+    {
+      "feature": "d_all_winrate",
+      "actual_gain": 675.219898223877,
+      "null_p95": 1617.9708216667173,
+      "null_mean": 1265.6922396659852,
+      "survives": false,
+      "rank": 30
+    },
+    {
+      "feature": "j_starts_prior",
+      "actual_gain": 572.9892044067383,
+      "null_p95": 2021.0017567157745,
+      "null_mean": 1708.0338615417481,
+      "survives": false,
+      "rank": 31
+    },
+    {
+      "feature": "d_has_outside_history",
+      "actual_gain": 545.6441993713379,
+      "null_p95": 69.90178556442258,
+      "null_mean": 24.975039958953857,
+      "survives": true,
+      "rank": 32
+    },
+    {
+      "feature": "distance",
+      "actual_gain": 247.2393970489502,
+      "null_p95": 838.4609337329863,
+      "null_mean": 537.6083574295044,
+      "survives": false,
+      "rank": 33
+    },
+    {
+      "feature": "h_wins_prior",
+      "actual_gain": 105.20469665527344,
+      "null_p95": 462.97512373924246,
+      "null_mean": 363.051118183136,
+      "survives": false,
+      "rank": 34
+    },
+    {
+      "feature": "is_first_start",
+      "actual_gain": 52.20970153808594,
+      "null_p95": 13.258575344085667,
+      "null_mean": 2.410650062561035,
+      "survives": true,
+      "rank": 35
+    },
+    {
+      "feature": "d_best_speed_penalty",
+      "actual_gain": 22.547000885009766,
+      "null_p95": 1039.755583524704,
+      "null_mean": 763.940625667572,
+      "survives": false,
+      "rank": 36
+    },
+    {
+      "feature": "s_starts_prior",
+      "actual_gain": 18.686800003051758,
+      "null_p95": 3544.2656202554704,
+      "null_mean": 2142.7567888736726,
+      "survives": false,
+      "rank": 37
+    },
+    {
+      "feature": "field_size",
+      "actual_gain": 0.0,
+      "null_p95": 23689.01329512595,
+      "null_mean": 12490.521029233932,
+      "survives": false,
+      "rank": 38
+    }
+  ]
+}

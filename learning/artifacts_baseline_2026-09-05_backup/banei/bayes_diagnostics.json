@@ -1,0 +1,6 @@
+{
+  "method": "svi",
+  "n_train_rows": 36329,
+  "svi_final_loss": 24676.689453125,
+  "svi_loss_improved": true
+}

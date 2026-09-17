@@ -1,0 +1,5 @@
+model,weight
+clogit,0.0
+lgbm,0.30564378908551876
+tabm,0.6943562109144813
+bayes,0.0

@@ -1,0 +1,19 @@
+[
+  "h_si_last3",
+  "h_top3rate_prior",
+  "d_pair_winrate",
+  "j_winrate_shrunk",
+  "d_all_winrate",
+  "b_body_weight",
+  "d_track_winrate",
+  "b_body_weight_diff",
+  "b_load_ratio",
+  "d_track_starts",
+  "h_days_since_prev",
+  "h_wins_prior",
+  "b_weight_carried",
+  "h_starts_prior",
+  "d_all_starts",
+  "b_age",
+  "class_level"
+]

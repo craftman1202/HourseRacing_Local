@@ -1,0 +1,124 @@
+{
+  "gold_content_hash": "e31c4987060a536878f84bc8c6e038464c606c6fa7764c4fff9ca58e24ef1b80",
+  "train_period": {
+    "start": "1998-01-01",
+    "end": "2026-08-24"
+  },
+  "purpose": "production",
+  "oos_evaluated_on": "2023-08-04",
+  "holdout_days": 90,
+  "n_fit_rows": 454398,
+  "n_calibration_rows": 4352,
+  "temperatures": {
+    "clogit": 0.9773207508170326,
+    "lgbm": 0.7710163195558181,
+    "tabm": 0.9852716719276697
+  },
+  "feature_names": [
+    "h_si_last3",
+    "h_top3rate_prior",
+    "d_pair_winrate",
+    "j_winrate_shrunk",
+    "d_all_winrate",
+    "b_body_weight",
+    "b_body_weight_diff",
+    "b_load_ratio",
+    "d_track_winrate",
+    "d_track_starts",
+    "b_weight_carried",
+    "h_days_since_prev",
+    "h_wins_prior",
+    "d_all_top3rate",
+    "h_winrate_prior",
+    "b_age",
+    "d_all_starts"
+  ],
+  "standardizer": {
+    "h_si_last3": {
+      "median": 0.24296052895,
+      "mean": 0.1856825689783615,
+      "std": 0.8783123215599705
+    },
+    "h_top3rate_prior": {
+      "median": 0.3515151515,
+      "mean": 0.3607346099720177,
+      "std": 0.14678728357786963
+    },
+    "d_pair_winrate": {
+      "median": 0.1,
+      "mean": 0.11306887819412915,
+      "std": 0.03481891212698055
+    },
+    "j_winrate_shrunk": {
+      "median": 0.1019677996,
+      "mean": 0.10501607775003609,
+      "std": 0.026732144954191576
+    },
+    "d_all_winrate": {
+      "median": 0.1111111111,
+      "mean": 0.11773088201528417,
+      "std": 0.03705044941590915
+    },
+    "b_body_weight": {
+      "median": 996.0,
+      "mean": 988.6010919942429,
+      "std": 81.28963526423323
+    },
+    "b_body_weight_diff": {
+      "median": 2.0,
+      "mean": 1.7841275709840272,
+      "std": 10.502347107261004
+    },
+    "b_load_ratio": {
+      "median": 0.6161616162,
+      "mean": 0.6176134659382916,
+      "std": 0.04979565164014123
+    },
+    "d_track_winrate": {
+      "median": 0.1076923077,
+      "mean": 0.11476094985025263,
+      "std": 0.03590924704846061
+    },
+    "d_track_starts": {
+      "median": 29.0,
+      "mean": 51.68436920937152,
+      "std": 59.63148002222677
+    },
+    "b_weight_carried": {
+      "median": 620.0,
+      "mean": 610.9416480706341,
+      "std": 72.95975990292911
+    },
+    "h_days_since_prev": {
+      "median": 12.0,
+      "mean": 13.561283280296129,
+      "std": 16.20356288869673
+    },
+    "h_wins_prior": {
+      "median": 6.0,
+      "mean": 8.662124393153139,
+      "std": 8.940394334611202
+    },
+    "d_all_top3rate": {
+      "median": 0.1923076923,
+      "mean": 0.1978016829125372,
+      "std": 0.0682556283387052
+    },
+    "h_winrate_prior": {
+      "median": 0.1171875,
+      "mean": 0.12758983998834703,
+      "std": 0.09351220080442779
+    },
+    "b_age": {
+      "median": 4.0,
+      "mean": 4.588347659980898,
+      "std": 2.249978467424049
+    },
+    "d_all_starts": {
+      "median": 52.0,
+      "mean": 72.09925219741284,
+      "std": 66.6642714521864
+    }
+  },
+  "notes": []
+}

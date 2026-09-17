@@ -1,0 +1,4 @@
+id,fired,severity,observed,message
+RF-01,False,Blocker,0.3568270629510254,OOS Top-1 が 60% 超。着順情報の混入がほぼ確実です。
+RF-02,False,Blocker,1.7985573649016302,OOS レース内 NLL が 1.20 未満。着順情報の混入がほぼ確実です。
+RF-05,False,Critical,0.008455535720122365,CV スコアが OOS より 0.10 以上良い。CV 分割のリークか過学習です。

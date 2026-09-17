@@ -1,0 +1,17 @@
+{
+  "results": {
+    "IG-14": "GREEN",
+    "LK-05": "GREEN",
+    "LK-06": "GREEN",
+    "EV-03": "GREEN",
+    "RF-01": "GREEN",
+    "RF-02": "GREEN",
+    "RF-03": "GREEN",
+    "RF-07": "GREEN",
+    "RF-08": "GREEN",
+    "CV-07": "GREEN"
+  },
+  "missing": [],
+  "oos_guards": {},
+  "can_publish": true
+}
