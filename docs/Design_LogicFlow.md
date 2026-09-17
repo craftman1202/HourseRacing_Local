@@ -577,13 +577,13 @@ classDiagram
 
 ## 5. コードを追って分かった設計とのずれ（2026-09-16）
 
-図を起こす過程で、既存の設計書の記述と実装が食い違っている箇所を確認した。いずれも**この文書の作成では修正していない**（挙動を変えるため、判断が要る）。
+図を起こす過程で、既存の設計書の記述と実装が食い違っている箇所を確認した。#3 以外は**この文書の作成では修正していない**（挙動を変えるため、判断が要る）。
 
 | # | 重要度 | 内容 | 根拠 |
 |---|---|---|---|
 | 1 | 高 | **本番の skew 検証は実質的に働いていない。** `Design_Operation.md` §2.4 は「前日分を確定層のみから再計算して snapshot と比較」と書くが、`service.ingest_and_refresh_endpoint` は `compare(snap, snap, …)` と**同じフレーム同士**を比較しており常に一致する。しかもこのエンドポイントは旧経路で、実処理の `nar-refresh` Job（`refresh.daily_refresh`）は skew 検証を呼ばない。`narops skew-check` CLI も `--recomputed` を渡さなければ snap 同士の比較になり、再計算値を作るコードは存在しない。 | `operation/src/narops/service.py:403`、`cli.py:428`、`refresh.py::daily_refresh` |
 | 2 | 中 | skew の許容列 `j_wins_today` / `t_wins_today` / `track_speed_bias` は特徴量として存在しない（騎手・調教師の「当日成績」や馬場差の特徴量は未実装）。許容リストは空振りしている。 | `conf/ops.yaml` の `skew.tolerated_columns`、`builder.ASOF_FEATURES` |
-| 3 | 中 | 較正の適用順が学習と推論で違う。walk-forward では**モデルごとに**温度をかけてから OOF で重みを推定するが、推論は**温度なしのモデル別 softmax を合成してから**、重み最大モデルの温度を1回だけかける。現行の温度は 0.95〜0.99 なので数値差は小さいが、手順は一致していない。 | `train/pipeline.py::run_fold`、`narops/inference.py::run_inference`、`cli.py::cmd_publish_release` |
+| 3 | ~~中~~ **修正済み（2026-09-17）** | ~~較正の適用順が学習と推論で違う。walk-forward では**モデルごとに**温度をかけてから OOF で重みを推定するが、推論は**温度なしのモデル別 softmax を合成してから**、重み最大モデルの温度を1回だけかける。現行の温度は 0.95〜0.99 なので数値差は小さいが、手順は一致していない。~~ `Manifest` に `model_temperatures`（モデルごとの温度）を追加し、`narops/inference.py::run_inference` がこれを使って学習と同じ「モデルごとに較正 → アンサンブル」の順序に変更した。この dict が無い旧リリースは従来どおり合成後に1回だけ較正する経路にフォールバックする。本番（flat: v2026.09.17-C、banei: v2026.09.17-B-banei）に反映済み。 | `train/pipeline.py::run_fold`、`narops/inference.py::run_inference`、`narops/model/manifest.py::Manifest.model_temperatures`、`narops/publish.py::build_release` |
 | 4 | 中 | 特徴量選択の第3段（RFE）の内部分割は `race_id` 順の 75/25。`race_id` は競馬場コード始まりなので**時系列ではなく場コードでの分割**になっている（同じ問題を `_fit_predict_bayes` は `start_ts` で並べ直して回避している）。 | `features/selection.py::select` |
 | 5 | 低 | 申告値の収縮 `d_*_winrate` の事前確率は `0.1` 固定（`declared.build` に `prior_win=None` が渡る）。docstring の「出走頭数の逆数相当」とは違い、自前集計の収縮（`1/n_runners`）とも揃っていない。 | `features/builder.py:383`、`features/declared.py:80` |
 | 6 | 低 | `class_level` は `_class_level` が 1〜5 を定義するが、実データの `class_name` は 普通/一般/特別/重賞/準重賞 の5値だけで、値は **2・4・5 しか出ない**。またレース内で定数なので、条件付きロジットではレース内 softmax で相殺される（配布物の係数は約 1e-17）。 | `silver.race` の実測、`clogit_beta.json` |

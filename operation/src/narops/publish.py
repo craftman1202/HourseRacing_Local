@@ -51,6 +51,7 @@ def build_release(
     standardizer: dict[str, dict[str, float]] | None = None,
     purpose: str = "evaluation",
     oos_evaluated_on: str | None = None,
+    model_temperatures: dict[str, float] | None = None,
 ) -> PublishResult:
     """リリースディレクトリを組み立てる。
 
@@ -110,6 +111,10 @@ def build_release(
     if dropped:
         notes.append(f"実体が無いため重みから除外: {dropped}（残りを再正規化）")
 
+    # 配布しないモデル（重み0・実体無し）の温度は推論側に渡す意味が無い。
+    # weights と同じ集合に揃えておく（blend() が見るモデル名と一致させる）。
+    model_temps = {k: v for k, v in (model_temperatures or {}).items() if k in weights}
+
     sha = {p.name: sha256_file(p) for p in sorted(out.iterdir())
            if p.name not in ("manifest.json",)}
     manifest = Manifest(
@@ -119,7 +124,7 @@ def build_release(
         oos_metrics=oos_metrics, lookback_days=lookback_days, track=track,
         calibration={"temperature": temperature}, git_commit=git_commit,
         ensemble_weights=weights, purpose=purpose,
-        oos_evaluated_on=oos_evaluated_on)
+        oos_evaluated_on=oos_evaluated_on, model_temperatures=model_temps)
     manifest.write(out / "manifest.json")
     return PublishResult(release_id, out, manifest, notes=notes)
 

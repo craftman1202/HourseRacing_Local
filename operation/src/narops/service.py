@@ -506,6 +506,7 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
             manifests=[bundle.manifest] * max(len(bundle.models), 1),
             weights=bundle.manifest.ensemble_weights,
             temperature=bundle.manifest.calibration.get("temperature", 1.0),
+            model_temperatures=bundle.manifest.model_temperatures,
             clock=svc.clock, cfg=svc.cfg, odds=odds, pool_model=bundle.pool_model,
             baba_code=int(row["baba_code"]),
             class_level=int(row.get("class_level", 1)),

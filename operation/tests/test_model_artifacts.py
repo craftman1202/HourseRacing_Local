@@ -243,6 +243,39 @@ def test_release_carries_onnx_sidecar_files(tmp_path, feature_spec):
     assert "tabm.onnx.data" in res.manifest.model_sha256, "改竄検知の対象外です"
 
 
+def test_release_carries_per_model_temperatures(tmp_path, feature_spec):
+    """model_temperatures は配布されるモデルの集合に絞って manifest へ入ること。
+
+    2026-09-17 追加: 学習側（run_fold）はモデルごとに較正してからアンサンブル
+    するが、旧 manifest は重み最大モデルの温度1つしか運べず、推論側の較正
+    順序が学習と食い違っていた（Design_LogicFlow.md §5-3）。ここに全モデル分を
+    残し、実体の無い（=配布しない）モデルの温度は落とす。
+    """
+    from narops.publish import build_release
+
+    src = tmp_path / "final"
+    src.mkdir()
+    (src / "tabm.onnx").write_text("graph", encoding="utf-8")
+    (src / "tabm.onnx.data").write_text("weights", encoding="utf-8")
+
+    green = {t: "GREEN" for t in
+             ("IG-14", "LK-05", "LK-06", "EV-03", "RF-01", "RF-02", "RF-03",
+              "RF-07", "RF-08", "CV-07")}
+    res = build_release(
+        release_id="v-temps", out_dir=tmp_path / "out",
+        feature_names=list(feature_spec.names), dataset_version="d",
+        train_period={"start": "1998-01-01", "end": "2023-08-04"},
+        oos_metrics={}, ensemble_weights={"tabm": 1.0}, lookback_days=180,
+        temperature=1.0, test_results=green,
+        standardizer={n: {"median": 0.0, "mean": 0.0, "std": 1.0}
+                      for n in feature_spec.names},
+        tabm_onnx_path=src / "tabm.onnx",
+        model_temperatures={"tabm": 1.7, "clogit": 0.9})
+
+    assert res.manifest.model_temperatures == {"tabm": 1.7}, \
+        "clogit は配布されていないので温度も残ってはいけません"
+
+
 def test_app_can_load_a_release_from_gcs(monkeypatch, tmp_path, release_dir):
     """Cloud Run は永続ディスクを持たない。配布物は GCS から取る。
 

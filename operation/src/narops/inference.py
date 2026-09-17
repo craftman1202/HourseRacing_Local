@@ -1,7 +1,10 @@
 """推論の実体。
 
-順序は「各モデル予測 → レース内 softmax 正規化 → 温度スケーリング →
-アンサンブル重み付き幾何平均 → 期待値 → 自己インパクト補正 → Kelly」。
+順序は「各モデル予測 → レース内 softmax 正規化 → モデルごとの温度スケーリング
+（学習側 walk-forward と同じ順序、2026-09-17 修正） → アンサンブル重み付き
+幾何平均 → 期待値 → 自己インパクト補正 → Kelly」。manifest にモデルごとの
+温度が無い旧リリースだけ、合成後に1回だけ温度をかける旧経路にフォールバック
+する（Design_LogicFlow.md §5-3）。
 
 出力確率のレース内総和が 1.0 ± 1e-9 でなければ例外を投げて配信を止める。
 **間違った推論を配信するより、届かないほうがまし**（設計書 §3.3 / IN-01）。
@@ -152,6 +155,7 @@ def run_inference(
     class_level: int = 1,
     day_budget_remaining: int | None = None,
     takeout: float = NOMINAL_TAKEOUT["単勝"],
+    model_temperatures: dict[str, float] | None = None,
 ) -> InferenceResult:
     """1レース分の推論。"""
     verify_no_version_mix(manifests)            # MP-06
@@ -168,11 +172,26 @@ def run_inference(
             raise InsufficientData(f"{name}: 予測 {scores.shape[0]} 行が頭数 {len(features)} と不一致")
         per_model[name] = race_softmax(scores, race_ids)
 
-    p = blend(per_model, weights, race_ids)
-
-    # IN-07: 温度スケーリング。順位を変えない変換であることは学習側で検証済み
-    if temperature and temperature > 0:
-        p = race_softmax(np.log(np.clip(p, 1e-12, 1.0)) / temperature, race_ids)
+    # IN-07: 温度スケーリング。
+    # 学習側（train/pipeline.py::run_fold）は「モデルごとに温度をかけてから
+    # アンサンブル重みを推定する」順序で較正を検証している。旧実装はここが
+    # 逆で、モデルを重み付き合成した後に1個の温度（重み最大モデルのもの）を
+    # かけていた（Design_LogicFlow.md §5-3、学習と推論の不一致）。
+    # manifest に model_temperatures（モデルごとの温度）があれば学習と同じ
+    # 順序で個別に較正する。旧リリース（この dict が空）は挙動を変えない
+    # ため、従来どおり合成後に1回だけ掛ける経路にフォールバックする。
+    model_temperatures = model_temperatures or {}
+    if model_temperatures:
+        for name in list(per_model):
+            t = model_temperatures.get(name)
+            if t and t > 0:
+                per_model[name] = race_softmax(
+                    np.log(np.clip(per_model[name], 1e-12, 1.0)) / t, race_ids)
+        p = blend(per_model, weights, race_ids)
+    else:
+        p = blend(per_model, weights, race_ids)
+        if temperature and temperature > 0:
+            p = race_softmax(np.log(np.clip(p, 1e-12, 1.0)) / temperature, race_ids)
 
     assert_normalized(p, race_ids)              # IN-01
 

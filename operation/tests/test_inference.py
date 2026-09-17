@@ -17,6 +17,7 @@ from narops.inference import (
     blend, run_inference,
 )
 from narops.model.manifest import Manifest
+from narops.shared import race_softmax
 
 pytestmark = pytest.mark.unit
 
@@ -222,6 +223,38 @@ def test_in07_temperature_changes_probabilities_but_not_ranking(
     assert (raw.sort_values("p_win", ascending=False)["horse_no"].tolist()
             == cal.sort_values("p_win", ascending=False)["horse_no"].tolist()), \
         "温度スケーリングは順位を変えてはいけません"
+
+
+def test_in07_model_temperatures_calibrate_before_blending(
+        features, models, manifests, at_window, cfg):
+    """model_temperatures 指定時は、学習側（run_fold）と同じ「モデルごとに
+    温度をかけてからアンサンブル」の順序になること（2026-09-17 修正、
+    Design_LogicFlow.md §5-3）。
+
+    合成後に単一温度をかける旧経路とは異なる結果になるはずで、かつ
+    「各モデルを個別に較正してから blend() する」を素朴に手計算した値と
+    一致することを確認する。
+    """
+    kw = dict(race_id="R", features=features, models=models, manifests=manifests,
+              weights={"lgbm": 0.5, "tabm": 0.5}, clock=at_window, cfg=cfg)
+
+    per_model_result = run_inference(
+        temperature=1.0, model_temperatures={"lgbm": 0.7, "tabm": 1.8}, **kw).frame
+    post_blend_result = run_inference(temperature=1.0, **kw).frame
+
+    assert not np.allclose(per_model_result["p_win"], post_blend_result["p_win"]), \
+        "モデルごとの較正は合成後の一律較正と同じ結果になってはいけません"
+
+    # 手計算: 各モデルのレース内 softmax を個別に温度較正してから重み付き幾何平均
+    rid = np.full(len(features), "R", dtype=object)
+    per_model = {name: race_softmax(model.score(features), rid)
+                for name, model in models.items()}
+    calibrated = {
+        "lgbm": race_softmax(np.log(np.clip(per_model["lgbm"], 1e-12, 1.0)) / 0.7, rid),
+        "tabm": race_softmax(np.log(np.clip(per_model["tabm"], 1e-12, 1.0)) / 1.8, rid),
+    }
+    expected = blend(calibrated, {"lgbm": 0.5, "tabm": 0.5}, rid)
+    assert np.allclose(per_model_result["p_win"].to_numpy(), expected, atol=1e-9)
 
 
 # ------------------------------------------------------------------ IN-09

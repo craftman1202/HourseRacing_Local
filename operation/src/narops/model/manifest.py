@@ -76,6 +76,15 @@ class Manifest:
     purpose: str = "evaluation"
     # OOS を測ったモデルの学習期間末。production 版では自分の train_period と違う。
     oos_evaluated_on: str | None = None
+    # モデルごとの較正温度（2026-09-17 追加）。学習側の walk-forward は
+    # 「モデルごとに温度をかけてからアンサンブル重みを推定する」順序で検証しているが、
+    # `calibration.temperature` は重み最大モデル1つ分しか運べず、推論側は
+    # 「重み付き合成のあとに1回だけ温度をかける」という違う順序になっていた
+    # （Design_LogicFlow.md §5-3）。ここに全モデル分を持たせ、推論側の
+    # `run_inference` が学習と同じ順序で較正できるようにする。
+    # 旧リリースには無いので空 dict がデフォルト（推論側は旧来の合成後1回較正に
+    # フォールバックする）。
+    model_temperatures: dict[str, float] = field(default_factory=dict)
 
     # ------------------------------------------------------------------ MP-01
     @classmethod

@@ -327,6 +327,7 @@ def cmd_publish_release(args) -> int:
         lgbm_booster_path=lgbm if lgbm.exists() else None,
         tabm_onnx_path=onnx if onnx.exists() else None,
         standardizer=meta.get("standardizer"),
+        model_temperatures=temps,
     )
     print(f"リリースを組み立てました: {result.path}")
     print(f"  重み: {result.manifest.ensemble_weights}")
