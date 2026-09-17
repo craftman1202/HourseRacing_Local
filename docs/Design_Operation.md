@@ -3,6 +3,7 @@
 対象範囲: 本番運用パイプライン、推論配信、可視化アプリケーション
 前提: 設計書 v1.0（ローカル学習環境）およびテスト仕様書 v1.0 と整合
 コスト目標: GCP 月額 $2 以下（Cloud Run のフリート内で完結）
+関連文書（2026-09-16 追加）: `Design_LogicFlow.md`（`nar-refresh` / `/plan-day` / `/snapshot-odds` / `/infer` / `/refresh-live` / `/weekly-report` のシーケンス図、日次タイムライン、運用モードの状態機械）、`Design_FeatureSchema.md` §9（確定層・ライブ層の列と silver の対応、推論時に各入力列をどこから取るか、`feature_snapshot` / `prediction` の中身）
 
 ---
 
@@ -171,6 +172,8 @@ TOLERATED_DRIFT = {"j_wins_today", "t_wins_today", "track_speed_bias"}
 ```
 
 この監視は設計書のリーク対策を運用時にも延長する仕組みで、静かな劣化を防ぐ唯一の手段です。
+
+> **実装の現況（2026-09-16、コード読解で確認）: この検証は現在ほぼ機能していない。** `service.ingest_and_refresh_endpoint` は `compare(snap, snap, …)` と保存済み snapshot 同士を比較しており常に一致する。このエンドポイント自体も旧経路で、実際の日次更新（`nar-refresh` Job の `refresh.daily_refresh`）は skew 検証を呼ばない。`narops skew-check` CLI も `--recomputed` を渡さない限り同じ比較になり、「確定層のみから再計算した特徴量」を作るコードはまだ無い。また上の `TOLERATED_DRIFT` の3列は特徴量として存在しない。詳細と他のずれは `Design_LogicFlow.md` §5。
 
 ### 2.5 コスト最適化：entity キャッシュ（2026-09-11）
 

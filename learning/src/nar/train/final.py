@@ -79,7 +79,18 @@ def fit_and_export(
     seed: int = 0, tabm_epochs: int = 3, tabm_width: dict | None = None,
     do_selection: bool = True, n_null_runs: int = 5,
     holdout_days: int = HOLDOUT_DAYS,
+    hpo_params: dict[str, dict] | None = None,
 ) -> FinalArtifacts:
+    """本番モデルを学習し、配布物一式を書き出す。
+
+    `hpo_params`（2026-09-17 追加）: `{"clogit": {...}, "lgbm": {...}, "tabm": {...}}`。
+    `nar learn` の nested HPO（`train/hpo.py`）が見つけた値をここで初めて配布物に
+    反映させる。**これを渡さない限り、fit-final は HPO の結果と無関係にハードコードされた
+    既定値（clogit l2=1e-3、lgbm の LightGBM 既定、tabm は `tabm_width`/`tabm_epochs`
+    のみ）で学習する** — `nar learn` で何時間かけて探索しても、配布モデルはその恩恵を
+    一切受けない状態だった。値は `_fit_one` がモデルごとの構築式にそのままマージする
+    （キーが無ければ元の既定値を使うので、`hpo_params=None` は完全に後方互換）。
+    """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -117,12 +128,14 @@ def fit_and_export(
     art = FinalArtifacts(out, selected,
                          {"start": str(start.date()), "end": str(end.date())}, {})
 
+    hpo_params = hpo_params or {}
     for name in models:
         t0 = time.time()
         try:
             p = _fit_one(name, fit_df, cal_df, selected, out, art,
                          seed=seed, tabm_epochs=tabm_epochs,
-                         tabm_width=tabm_width or {})
+                         tabm_width=tabm_width or {},
+                         hpo=hpo_params.get(name, {}))
         except Exception as exc:  # noqa: BLE001
             log.exception("最終学習: %s が失敗しました: %s", name, exc)
             art.notes.append(f"{name}: 失敗（{exc}）")
@@ -160,6 +173,7 @@ def fit_and_export(
         "temperatures": art.temperatures,
         "feature_names": selected,
         "standardizer": stats,
+        "hpo_params": hpo_params,
         "notes": art.notes,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     art.written.extend(["feature_names.json", "standardizer.json", "final_meta.json"])
@@ -167,9 +181,13 @@ def fit_and_export(
 
 
 def _fit_one(name, fit_df, cal_df, cols, out: Path, art: FinalArtifacts,
-             seed: int, tabm_epochs: int, tabm_width: dict) -> np.ndarray:
+             seed: int, tabm_epochs: int, tabm_width: dict,
+             hpo: dict | None = None) -> np.ndarray:
+    """`hpo` は `nar learn` の nested HPO が見つけた値（無ければ空 dict = 既定値のまま）。"""
+    hpo = hpo or {}
     if name == "clogit":
-        model = ConditionalLogit(l2=1e-3).fit(to_batch(fit_df, cols))
+        model = ConditionalLogit(l2=hpo.get("l2", 1e-3),
+                                 l1=hpo.get("l1", 0.0)).fit(to_batch(fit_df, cols))
         (out / "clogit_beta.json").write_text(
             json.dumps({"beta": model.coefficients()}, ensure_ascii=False, indent=2),
             encoding="utf-8")
@@ -178,7 +196,11 @@ def _fit_one(name, fit_df, cal_df, cols, out: Path, art: FinalArtifacts,
         return b.flat_predictions(model.predict_proba(b), len(cal_df))
 
     if name == "lgbm":
-        ranker = LgbmRanker(num_boost_round=300).fit(fit_df, cols)
+        # HPO 側（train/hpo.py::suggest_lgbm）と同じ unpack 規約。
+        # `_num_boost_round`/`_label_grades` は LightGBM のネイティブパラメータではない。
+        p = dict(hpo)
+        rounds = p.pop("_num_boost_round", 300)
+        ranker = LgbmRanker(p, num_boost_round=rounds).fit(fit_df, cols)
         ranker.booster.save_model(str(out / "lgbm_rank.txt"))
         art.written.append("lgbm_rank.txt")
         return ranker.predict_proba(cal_df)
@@ -186,8 +208,12 @@ def _fit_one(name, fit_df, cal_df, cols, out: Path, art: FinalArtifacts,
     if name == "tabm":
         from ..models.tabm import TabM, TabMConfig
 
+        # tabm_width（fit-final の --tabm-k 等）を既定にしつつ、HPO が見つけた値で
+        # 上書きする。HPO は width（k/hidden/n_layers）そのものも探索するので、
+        # ここが一致して初めて「HPO が選んだアーキテクチャがそのまま配布される」。
+        merged = {**tabm_width, **hpo}
         cfg = TabMConfig(epochs=tabm_epochs,
-                         **{k: v for k, v in tabm_width.items()
+                         **{k: v for k, v in merged.items()
                             if k in TabMConfig.__annotations__})
         model = TabM(cfg).fit(to_batch(fit_df, cols), to_batch(cal_df, cols))
         _export_tabm(model, len(cols), out, art, cal_df, cols)

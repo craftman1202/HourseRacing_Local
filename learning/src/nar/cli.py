@@ -751,15 +751,26 @@ def cmd_fit_final(args: argparse.Namespace) -> int:
         print("警告: gold の content_hash がありません。`nar features` を再実行すると"
               "manifest に dataset_version が入ります。", file=sys.stderr)
 
+    hpo_params = None
+    if args.hpo_params_json:
+        hpo_params = json.loads(Path(args.hpo_params_json).read_text(encoding="utf-8"))
+        print(f"HPO パラメータを適用: {args.hpo_params_json}")
+
     art = fit_and_export(
         feat, cols, ccfg, fcfg, out_dir=args.out, gold_hash=gold_hash,
         models=tuple(args.models.split(",")), seed=args.seed,
         tabm_epochs=args.tabm_epochs,
+        # 2026-09-17 修正: TabMConfig のフィールド名は batch_races（"batch_size" は
+        # 存在しない）。`{k: v for k, v in tabm_width.items() if k in
+        # TabMConfig.__annotations__}` が黙ってこのキーを捨てていたため、
+        # fit-final の --tabm-batch はこれまで一度も効いておらず、常に既定値
+        # 256 で学習していた（`learn` サブコマンド側は最初から batch_races で
+        # 正しく渡っており、この不整合は fit-final 固有）。
         tabm_width={"k": args.tabm_k, "hidden": args.tabm_hidden,
-                    "n_layers": args.tabm_layers, "batch_size": args.tabm_batch},
+                    "n_layers": args.tabm_layers, "batch_races": args.tabm_batch},
         through=args.through,
         do_selection=not args.no_selection, n_null_runs=args.null_runs,
-        holdout_days=args.holdout_days)
+        holdout_days=args.holdout_days, hpo_params=hpo_params)
 
     meta = json.loads((Path(art.out_dir) / "final_meta.json").read_text(encoding="utf-8"))
     print(f"学習期間: {art.train_period['start']} 〜 {art.train_period['end']}")
@@ -967,6 +978,10 @@ def main(argv: list[str] | None = None) -> int:
                         "OOS 評価後に出荷用を作るときは最新データ日を指定する")
     s.add_argument("--no-selection", action="store_true")
     s.add_argument("--seed", type=int, default=0)
+    s.add_argument("--hpo-params-json", default=None,
+                   help="`nar learn` の HPO が見つけたハイパーパラメータ "
+                        "（{\"clogit\":{...},\"lgbm\":{...},\"tabm\":{...}}）。"
+                        "省略時は各モデルの既定値（HPO 未反映）")
     s.set_defaults(func=cmd_fit_final)
 
     s = sub.add_parser("trackb", help="保存済み OOF でトラックB を評価する")

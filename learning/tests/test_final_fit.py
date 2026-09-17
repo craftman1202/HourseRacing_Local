@@ -84,6 +84,56 @@ def test_feature_names_match_the_beta_keys(artifacts):
     assert list(beta) == names
 
 
+# ------------------------------------------------------------------ hpo_params
+def test_hpo_params_actually_change_the_fitted_model(tmp_path_factory):
+    """`hpo_params` を渡さないと、nar learn の HPO 結果は配布物に一切反映されない
+    （2026-09-17 まではこの経路自体が無かった）。l2 を極端に変えて実際に係数へ
+    効いていることを確認する——記録されるだけで無視される回帰を防ぐ。
+    """
+    from nar import synth
+    from nar.features.builder import ASOF_FEATURES, build
+    from nar.synth import SynthConfig
+    from dataclasses import replace
+
+    t = synth.generate(SynthConfig(n_races=1200))
+    feat = build(t["entry"], t["race"], feature_config())
+    cols = [c for c in ASOF_FEATURES if c in feat.columns]
+    ccfg = cv_config()
+    dates = pd.to_datetime(feat["race_date"])
+    ccfg = replace(ccfg, train_start=str(dates.min().date()),
+                   oos=(str((dates.max() - pd.Timedelta(days=30)).date()), None))
+
+    default_art = fit_and_export(
+        feat, cols, ccfg, feature_config(),
+        out_dir=tmp_path_factory.mktemp("final_default"),
+        models=("clogit",), holdout_days=200, do_selection=False)
+    tuned_art = fit_and_export(
+        feat, cols, ccfg, feature_config(),
+        out_dir=tmp_path_factory.mktemp("final_tuned"),
+        models=("clogit",), holdout_days=200, do_selection=False,
+        hpo_params={"clogit": {"l2": 50.0, "l1": 0.0}})
+
+    default_beta = json.loads(
+        (default_art.out_dir / "clogit_beta.json").read_text(encoding="utf-8"))["beta"]
+    tuned_beta = json.loads(
+        (tuned_art.out_dir / "clogit_beta.json").read_text(encoding="utf-8"))["beta"]
+    # 強い L2 は係数を全体的に 0 へ縮める。既定 l2=1e-3 と l2=50 で係数が変われば、
+    # hpo_params が実際にモデル構築へ渡っている証拠になる。
+    assert default_beta != tuned_beta
+    default_norm = sum(v * v for v in default_beta.values()) ** 0.5
+    tuned_norm = sum(v * v for v in tuned_beta.values()) ** 0.5
+    assert tuned_norm < default_norm, "強い L2 のほうが係数ノルムが大きい＝適用されていない"
+
+    meta = json.loads((tuned_art.out_dir / "final_meta.json").read_text(encoding="utf-8"))
+    assert meta["hpo_params"] == {"clogit": {"l2": 50.0, "l1": 0.0}}
+
+
+def test_hpo_params_none_is_fully_backward_compatible(artifacts):
+    """hpo_params を渡さない既存の呼び出しは、記録される値が空 dict になるだけ。"""
+    meta = json.loads((artifacts.out_dir / "final_meta.json").read_text(encoding="utf-8"))
+    assert meta["hpo_params"] == {}
+
+
 # ------------------------------------------------------------------ ゲート証跡
 def test_gate_marks_unrun_blockers_as_missing_not_green(tmp_path):
     """未実施を GREEN と読み替えたら、ゲートは何も守らない。"""

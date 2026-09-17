@@ -58,10 +58,21 @@ def suggest_lgbm(t: optuna.Trial) -> dict:
 
 
 def suggest_tabm(t: optuna.Trial) -> dict:
+    """
+    2026-09-17: 探索空間を `k∈{4,8,16}, hidden∈{128,256,512}, n_layers∈{2,3,4}`
+    （設計値）から `k∈{4,8}, hidden∈{128,256}, n_layers∈{2,3}` へ狭めた。
+    共有バックボーンのコストはおおよそ hidden² × n_layers × k に比例するため、
+    設計値の探索空間では最悪ケース（k=16, hidden=512, n_layers=4）が最良ケース
+    （k=4, hidden=128, n_layers=2）の理論上 100 倍超になりうる。CPU 実行かつ
+    GPU が使えない期間（README「実行環境」節）に、単発の TPE サンプルがこの
+    範囲を引くと nested HPO 1 fold が数時間〜1日規模に膨らみ、5 fold × 2 系統の
+    現実的な実行時間を壊す。狭めた範囲でも最悪/最良の比は 12 倍程度に収まる。
+    GPU 復旧後（WSL2 の GPU パススルーが直ったら）は設計値に戻す価値がある。
+    """
     return {
-        "k": t.suggest_categorical("k", [4, 8, 16]),
-        "hidden": t.suggest_categorical("hidden", [128, 256, 512]),
-        "n_layers": t.suggest_int("n_layers", 2, 4),
+        "k": t.suggest_categorical("k", [4, 8]),
+        "hidden": t.suggest_categorical("hidden", [128, 256]),
+        "n_layers": t.suggest_int("n_layers", 2, 3),
         "dropout": t.suggest_float("dropout", 0.0, 0.4),
         "lr": t.suggest_float("lr", 3e-4, 5e-3, log=True),
         "weight_decay": t.suggest_float("weight_decay", 1e-6, 1e-2, log=True),
