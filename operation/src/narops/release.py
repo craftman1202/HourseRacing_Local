@@ -78,16 +78,36 @@ class ShadowMetrics:
     top1: float
 
 
+# 昇格の許容悪化幅（2026-09-17、fit-final の batch_size バグ修正版への
+# 入れ替えでユーザー承認のうえ導入）。
+# NLL は予測精度そのものなので、実測ノイズとして相対3%までの悪化を許容する。
+# ECE（較正誤差）は現行実測が 0.003〜0.008 台とごく小さく、相対%では僅かな
+# 絶対差でも見かけ上大きく振れるため、絶対値で 0.01 までの悪化を許容する
+# （ユーザー指示、2026-09-17）。
+NLL_DEGRADATION_TOLERANCE = 0.03
+ECE_DEGRADATION_TOLERANCE_ABS = 0.01
+
+
 def assert_promotion_allowed(shadow: ShadowMetrics, production: ShadowMetrics,
                              min_days: int = SHADOW_DAYS) -> None:
-    """2週間分のシャドー指標が現行版以上でなければ昇格を拒否する。"""
+    """シャドー指標が許容範囲内でなければ昇格を拒否する。
+
+    許容範囲は `NLL_DEGRADATION_TOLERANCE`（相対） /
+    `ECE_DEGRADATION_TOLERANCE_ABS`（絶対）を参照。
+    """
     problems = []
     if shadow.days < min_days:
         problems.append(f"シャドー期間 {shadow.days} 日が必要日数 {min_days} 日に足りません")
-    if shadow.nll > production.nll:
-        problems.append(f"NLL {shadow.nll:.4f} が現行 {production.nll:.4f} より悪い")
-    if shadow.ece > production.ece + 1e-12:
-        problems.append(f"ECE {shadow.ece:.4f} が現行 {production.ece:.4f} より悪い")
+    nll_limit = production.nll * (1 + NLL_DEGRADATION_TOLERANCE)
+    if shadow.nll > nll_limit:
+        problems.append(
+            f"NLL {shadow.nll:.4f} が現行 {production.nll:.4f} の許容悪化幅"
+            f"（相対{NLL_DEGRADATION_TOLERANCE:.0%}、上限{nll_limit:.4f}）を超えています")
+    ece_limit = production.ece + ECE_DEGRADATION_TOLERANCE_ABS
+    if shadow.ece > ece_limit:
+        problems.append(
+            f"ECE {shadow.ece:.4f} が現行 {production.ece:.4f} の許容悪化幅"
+            f"（絶対+{ECE_DEGRADATION_TOLERANCE_ABS:.4f}、上限{ece_limit:.4f}）を超えています")
     if problems:
         raise PromotionRejected("昇格条件を満たしません: " + " / ".join(problems))
 

@@ -81,13 +81,36 @@ def test_rl03_promotion_requires_two_weeks_of_shadow():
         assert_promotion_allowed(shadow, prod)
 
 
-def test_rl03_promotion_requires_metrics_at_least_as_good():
+def test_rl03_promotion_rejects_nll_beyond_tolerance():
+    """NLL の相対3%を超える悪化は、ECEが現行並みでも拒否する。"""
     prod = ShadowMetrics(days=30, nll=1.80, ece=0.002, top1=0.35)
-    worse = ShadowMetrics(days=14, nll=1.95, ece=0.002, top1=0.33)
+    worse = ShadowMetrics(days=14, nll=1.80 * 1.031, ece=0.002, top1=0.33)  # +3.1%
     with pytest.raises(PromotionRejected, match="NLL"):
         assert_promotion_allowed(worse, prod)
 
-    worse_ece = ShadowMetrics(days=14, nll=1.70, ece=0.010, top1=0.36)
+
+def test_rl03_nll_within_tolerance_is_allowed():
+    """NLL の相対3%以内の悪化は実測ノイズとして許容する（2026-09-17 導入）。"""
+    prod = ShadowMetrics(days=30, nll=1.80, ece=0.002, top1=0.35)
+    within = ShadowMetrics(days=14, nll=1.80 * 1.02, ece=0.002, top1=0.33)  # +2%
+    assert_promotion_allowed(within, prod)
+
+
+def test_rl03_ece_within_absolute_tolerance_is_allowed():
+    """ECE は絶対値で0.01までの悪化を実測ノイズとして許容する（2026-09-17 導入）。
+
+    実例（v2026.09.17-A-banei）: 現行比 ECE +0.0023（相対では+30%）だが、
+    絶対値の悪化幅は許容範囲内。
+    """
+    prod = ShadowMetrics(days=30, nll=1.80, ece=0.003, top1=0.35)
+    within = ShadowMetrics(days=14, nll=1.79, ece=0.003 + 0.0099, top1=0.36)
+    assert_promotion_allowed(within, prod)
+
+
+def test_rl03_ece_beyond_absolute_tolerance_is_rejected():
+    """ECE の悪化が絶対値で0.01を超える場合は、NLLが良くても拒否する。"""
+    prod = ShadowMetrics(days=30, nll=1.80, ece=0.002, top1=0.35)
+    worse_ece = ShadowMetrics(days=14, nll=1.70, ece=0.002 + 0.0101, top1=0.36)
     with pytest.raises(PromotionRejected, match="ECE"):
         assert_promotion_allowed(worse_ece, prod)
 
