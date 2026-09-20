@@ -345,6 +345,61 @@ def test_one_unavailable_odds_page_does_not_stop_reconciliation(svc, schedule_ro
     assert out["odds_unavailable"] >= 0
 
 
+class _RecordingAlertSender:
+    def __init__(self):
+        self.sent: list = []
+
+    def send(self, embeds):
+        self.sent.extend(embeds)
+
+
+def test_snapshot_odds_does_not_alert_when_no_races_remain_but_structure_is_fine(
+        svc, schedule_rows):
+    """2026-09-20 の実例: 夜になり全レースが「成績」表示になっただけなのに、
+    HTML 構造が壊れたかのような Critical アラートが Discord に飛んだ。
+
+    `NoRacesRemaining` はページ構造を認識できた上での「今は発走待ちが無い」
+    なので、Critical アラートを鳴らさず、reconcile() も呼ばない（呼ぶと
+    stored の全レースを「中止・取消」と誤認してタスクを削除してしまう）。
+    """
+    from narops.nar_source import NoRacesRemaining
+    from narops.service import snapshot_odds_endpoint
+
+    alert_sender = _RecordingAlertSender()
+    svc.alert_sender = alert_sender
+
+    plan_day_endpoint(svc, DAY)  # stored schedule + タスクを積んでおく
+    tasks_before = svc.queue.count()
+    assert tasks_before > 0
+
+    src = svc.source_factory()
+    src.fail = NoRacesRemaining(f"{DAY} は現在「発走待ち」のレースがありません")
+    out = snapshot_odds_endpoint(svc, DAY)
+
+    assert out["status"] == "ok", out
+    assert alert_sender.sent == [], "構造は壊れていないのに Critical を鳴らしています"
+    assert svc.queue.count() == tasks_before, \
+        "reconcile() が誤って呼ばれ、積み込み済みタスクが消えています"
+
+
+def test_snapshot_odds_still_alerts_critical_on_genuine_structural_break(
+        svc, schedule_rows):
+    """本当に HTML 構造が壊れたときは、今まで通り Critical で degraded にする。"""
+    from narops.nar_source import NarFetchError
+    from narops.service import snapshot_odds_endpoint
+
+    alert_sender = _RecordingAlertSender()
+    svc.alert_sender = alert_sender
+
+    src = svc.source_factory()
+    src.fail = NarFetchError("スケジュールを抽出できませんでした")
+    out = snapshot_odds_endpoint(svc, DAY)
+
+    assert out["status"] == "degraded", out
+    assert len(alert_sender.sent) == 1
+    assert "[Critical]" in alert_sender.sent[0].title, alert_sender.sent
+
+
 def test_refresh_live_actually_fetches_results(svc, schedule_rows, monkeypatch):
     """`/refresh-live` は本番で常に 0 件を返していた。
 

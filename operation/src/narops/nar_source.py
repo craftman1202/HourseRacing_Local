@@ -60,6 +60,21 @@ class NarFetchError(Exception):
     """取得・解析の失敗。当日をスキップする理由になる。"""
 
 
+class NoRacesRemaining(NarFetchError):
+    """ページ構造は認識できたが、現在「発走待ち」のレースが1件も無い。
+
+    `/plan-day`（朝）は今まで通り `NarFetchError` として扱われるので挙動は
+    変わらない（このクラスはその派生）。`/snapshot-odds`（1日に何度も呼ばれる
+    再照合）だけがこれを区別する。2026-09-20 に「本日のスケジュールを抽出
+    できませんでした。HTML 構造が変わった可能性があります」という誤検知の
+    Critical アラートが Discord に飛んだ実例がある — 実際には夜になって
+    その日の全レースが「成績」（発走済み）表示に変わっただけで、HTML は
+    壊れていなかった。`parse_schedule` は状態（成績・取消・確定前…）は
+    `_SLOT_STATES` として正しく認識しつつ「発走待ち」の行だけが0件になる
+    ため、0件＝構造破壊という決めつけが誤りだった。
+    """
+
+
 @dataclass
 class NarSource:
     """当日情報の取得。
@@ -118,10 +133,26 @@ class NarSource:
         """当日の開催場・レース番号・発走時刻。
 
         抽出できなければ例外。空の DataFrame を返して「開催なし」と誤認させない。
+
+        0件になる理由は2通りあり、区別する（`NoRacesRemaining` の docstring
+        参照）:
+          - ページから開催場名すら1つも認識できない → 本当に HTML 構造が
+            変わったか、その日は開催が無い。判別できないので今まで通り
+            fail-closed で `NarFetchError` を投げる。
+          - 開催場名や `成績`/`取消` 等の状態ラベルは認識できているのに、
+            「発走待ち」の行が1件も無い → 構造は壊れていない。単にその
+            時点で発走待ちのレースが無いだけ（例: 夜になり全レース終了）。
+            `NoRacesRemaining`（`NarFetchError` のサブクラスなので `/plan-day`
+            の挙動は変わらない）を投げ、呼び出し側が使い分ける。
         """
         html = self._get(TODAY_TOP, {"k_raceDate": day.strftime("%Y/%m/%d")})
         rows = parse_schedule(html, day)
         if not rows:
+            if schedule_page_structure_recognized(html):
+                raise NoRacesRemaining(
+                    f"{day} は現在「発走待ち」のレースがありません（全レース終了・"
+                    "中止、またはまだ開催が発表されていません）。ページ構造は"
+                    "認識できています。")
             raise NarFetchError(
                 f"{day} のスケジュールを抽出できませんでした。HTML 構造が変わった可能性が"
                 "あります。当日の計画を中止します（DR-02）。")
@@ -200,6 +231,23 @@ _SLOT_STATES = frozenset({"成績", "確定前", "発売中", "締切", "取消"
 # 格付けラベル。枠を消費しない装飾
 _GRADE_LABELS = frozenset({"特別", "重賞", "認定", "交流"})
 _END_LABELS = frozenset({"払戻金", "月別開催日程"})
+
+
+def schedule_page_structure_recognized(html: str) -> bool:
+    """`parse_schedule` が0件のとき、それが構造破壊かどうかの弱い判定材料。
+
+    ページ下部の「開催場」一覧（今日〜数日先の予告表）にも競馬場名は出るが、
+    その直後に発走状態ラベルは付かない。本編のレース表（競馬場名の直後に
+    `成績`/`取消`/`確定前`等の状態ラベルか発走時刻が続く）だけを見たいので、
+    「競馬場名の直後の行が状態ラベルである」組を1つ以上見つけたときだけ
+    True にする。
+    """
+    text = re.sub(r"<[^>]+>", "\n", html)
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    for i, line in enumerate(lines[:-1]):
+        if line in BABA_CODE and lines[i + 1] in _SLOT_STATES:
+            return True
+    return False
 
 
 def parse_schedule(html: str, day: date) -> list[dict]:

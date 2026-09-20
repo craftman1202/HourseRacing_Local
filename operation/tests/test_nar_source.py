@@ -74,3 +74,60 @@ def test_mizusawa_and_morioka_both_appear_when_racing_the_same_day():
     tracks = {r["track_name"]: r["baba_code"] for r in rows}
     assert tracks == {"盛岡": 10, "水沢": 11}, tracks
     assert len({r["race_id"] for r in rows}) == 2, "race_id が衝突しレースが消えています"
+
+
+# ---------------------------------------------------- 0件＝構造破壊、の誤検知
+def test_structure_recognized_when_all_races_of_the_day_already_finished():
+    """2026-09-20 の実例。夜になり全レースが「成績」表示に変わっただけで、
+    競馬場名の直後に状態ラベルが正しく並んでいる＝ HTML 構造は壊れていない。
+    """
+    from datetime import date
+
+    from narops.nar_source import parse_schedule, schedule_page_structure_recognized
+
+    html = """
+    <div>帯広ば</div><div>成績</div><div>成績</div><div>特別</div><div>成績</div>
+    <div>高知</div><div>成績</div><div>特別</div><div>成績</div>
+    """
+    assert parse_schedule(html, date(2026, 9, 20)) == [], \
+        "このケースの前提（発走待ちが0件）が崩れています"
+    assert schedule_page_structure_recognized(html), \
+        "競馬場名の直後に既知の状態ラベルがあるのに認識できていません"
+
+
+def test_structure_not_recognized_for_a_genuinely_broken_page():
+    """競馬場名すら見つからない・状態ラベルが続かないページは区別できない
+    （本当に HTML が壊れたか、その日は開催が無いかのどちらか）ので
+    fail-closed のまま False にする。
+    """
+    from narops.nar_source import schedule_page_structure_recognized
+
+    assert not schedule_page_structure_recognized("<div>準備中です</div>")
+    # 競馬場名は出るが、直後に来るのが未知のラベル（構造変化の疑い）
+    assert not schedule_page_structure_recognized(
+        "<div>帯広ば</div><div>新しい未知の表示</div>")
+
+
+def test_fetch_schedule_distinguishes_no_races_remaining_from_broken_html():
+    """`fetch_schedule` は0件のとき、構造を認識できたかで例外を使い分ける。"""
+    from datetime import date
+    from types import SimpleNamespace
+
+    import pytest
+
+    from narops.nar_source import NarFetchError, NarSource, NoRacesRemaining
+
+    finished_html = "<div>帯広ば</div><div>成績</div><div>成績</div>"
+    src = NarSource(user_agent="t")
+    src._client = SimpleNamespace(
+        fetch=lambda url, params: SimpleNamespace(content=finished_html.encode("utf-8")))
+    with pytest.raises(NoRacesRemaining):
+        src.fetch_schedule(date(2026, 9, 20))
+
+    broken_html = "<div>意味不明な新しいレイアウト</div>"
+    src._client = SimpleNamespace(
+        fetch=lambda url, params: SimpleNamespace(content=broken_html.encode("utf-8")))
+    with pytest.raises(NarFetchError) as exc_info:
+        src.fetch_schedule(date(2026, 9, 20))
+    assert not isinstance(exc_info.value, NoRacesRemaining), \
+        "本当に構造が読めないケースは NoRacesRemaining にしてはいけません"

@@ -37,7 +37,7 @@ from .inference import PoolSizeModel, assert_within_window, run_inference
 from .jobs import UpdateBudget, record_run
 from .mode import Mode, OperatingState
 from .monitoring import MonitorConfig, check_coverage, check_model_freshness, check_rf_guards
-from .nar_source import NarFetchError, NarSource
+from .nar_source import NarFetchError, NarSource, NoRacesRemaining
 from .pipeline import (
     InferenceOutcome, day_budget_remaining, write_bet_candidates, write_prediction,
 )
@@ -277,6 +277,16 @@ def snapshot_odds_endpoint(svc: Services, day: date | None = None) -> dict:
                     rows.append(odds)
             if rows:
                 captured = _insert_odds(svc.wh, pd.concat(rows, ignore_index=True))
+    except NoRacesRemaining as exc:
+        # HTML 構造は認識できているが、今この瞬間「発走待ち」のレースが無い
+        # だけ（多くは夜になり全レースが「成績」表示になった状態）。
+        # 2026-09-20 実際にこれを NarFetchError と区別せず Critical アラートを
+        # 飛ばしていた（構造は壊れていなかった）。current が空なので
+        # reconcile() を呼ぶと stored の全レースを「中止・取消」と誤認して
+        # 積み込み済みタスクを削除してしまう — ここでは呼ばない。
+        log.info("スケジュール再照合: %s", redact(str(exc))[:200])
+        return {"status": "ok", "captured": captured, "reconciled": [],
+                "odds_unavailable": 0, "note": redact(str(exc))[:200]}
     except Exception as exc:  # noqa: BLE001
         # ここに来るのはスケジュール自体が取れない場合。当日の追随ができない
         # ので degraded にする。
