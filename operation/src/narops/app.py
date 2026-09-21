@@ -337,7 +337,8 @@ def create_app() -> FastAPI:
         race_id = body.get("race_id")
         if not race_id:
             raise HTTPException(status_code=400, detail="race_id が必要です")
-        out = infer_endpoint(_svc(), race_id)
+        attempt = int(body.get("attempt", 0))
+        out = infer_endpoint(_svc(), race_id, attempt=attempt)
         return {"race_id": out.race_id, "status": out.status, "reason": out.reason,
                 "n_predictions": len(out.predictions),
                 "n_bet_candidates": len(out.bet_candidates)}

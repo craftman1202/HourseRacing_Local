@@ -112,6 +112,8 @@ class OpsConfig:
     region: str
     infer_lead_minutes: int
     infer_lead_tolerance_sec: int
+    infer_max_retries: int
+    infer_retry_backoff_sec: tuple[int, ...]
     discord_min_ev: float
     discord_rate_limit_rps: float
     max_bet_per_race: int
@@ -133,6 +135,12 @@ class OpsConfig:
             project=raw["gcp"]["project"], region=raw["gcp"]["region"],
             infer_lead_minutes=int(inf["lead_minutes"]),
             infer_lead_tolerance_sec=int(inf["lead_tolerance_sec"]),
+            # 2026-09-21 まで conf/ops.yaml に書いてあるだけで読まれておらず、
+            # 推論失敗時のリトライが一度も実装されていなかった
+            # （b_body_weight の掲載待ちで無リトライのまま止まっていた実例）。
+            infer_max_retries=int(inf.get("max_retries", 3)),
+            infer_retry_backoff_sec=tuple(int(s) for s in inf.get(
+                "retry_backoff_sec", (30, 90, 270))),
             discord_min_ev=float(disc["min_ev"]),
             discord_rate_limit_rps=float(disc["rate_limit_rps"]),
             max_bet_per_race=int(bet["max_per_race"]),

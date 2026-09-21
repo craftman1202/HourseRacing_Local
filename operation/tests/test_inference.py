@@ -289,7 +289,7 @@ def test_in09_empty_card_is_rejected(populated, release_dir):
 
 # ------------------------------------------------------------------ IN-11
 def test_in11_retry_policy_distinguishes_transient_from_logic():
-    from narops.errors import AsOfViolation, ZeroFillForbidden
+    from narops.errors import AsOfViolation, DataNotYetPublished, InsufficientData, ZeroFillForbidden
     from narops.jobs import RetryPolicy
 
     p = RetryPolicy()
@@ -299,6 +299,11 @@ def test_in11_retry_policy_distinguishes_transient_from_logic():
     # 同じ結果にしかならないものはリトライしない
     assert not p.should_retry(ZeroFillForbidden("x"), attempt=1)
     assert not p.should_retry(AsOfViolation("x"), attempt=1)
+    assert not p.should_retry(InsufficientData("x"), attempt=1)
+    # DataNotYetPublished は InsufficientData のサブクラスだが例外
+    # （2026-09-21、b_body_weight の掲載待ちがリトライ無しで止まっていた実例）
+    assert p.should_retry(DataNotYetPublished("x"), attempt=1)
+    assert not p.should_retry(DataNotYetPublished("x"), attempt=3), "これも上限は効く"
 
 
 def test_in11_backoff_schedule():

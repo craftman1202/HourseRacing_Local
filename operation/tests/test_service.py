@@ -232,6 +232,64 @@ def test_infer_degrades_to_track_a_without_odds(svc):
     assert set(preds["track_used"]) == {"A"}
 
 
+def test_infer_reenqueues_a_retry_on_data_not_yet_published(svc, monkeypatch):
+    """2026-09-21 の実例（032026092103, b_body_weight 1/10 頭欠測）。
+
+    DataNotYetPublished はリトライで直る見込みがあるので、Critical アラート
+    ではなく `conf/ops.yaml` の `inference.retry_backoff_sec[0]` 秒後に
+    `/infer` を再度呼ぶタスクを積み直す。
+    """
+    import narops.service as svc_module
+    from narops.errors import DataNotYetPublished
+    from narops.tasks import Task
+
+    def boom(*a, **k):
+        raise DataNotYetPublished("b_body_weight が 1/10 頭で欠測しています")
+
+    monkeypatch.setattr(svc_module, "build_for_race", boom)
+    alert_sender = _RecordingAlertSender()
+    svc.alert_sender = alert_sender
+
+    plan_day_endpoint(svc, DAY)
+    before = svc.clock.now()
+    out = infer_endpoint(svc, RACE_ID, attempt=0)
+
+    assert out.status == "insufficient_data"
+    assert alert_sender.sent == [], "1回目の失敗でCriticalを鳴らしています"
+
+    retry_tasks = [t for t in svc.queue.tasks.values() if t.endpoint == "/infer"
+                  and t.payload.get("attempt") == 1]
+    assert len(retry_tasks) == 1, "再試行タスクが積まれていません"
+    task: Task = retry_tasks[0]
+    assert task.payload["race_id"] == RACE_ID
+    expected_wait = svc.cfg.infer_retry_backoff_sec[0]
+    assert task.scheduled_for == pytest.approx(
+        before + timedelta(seconds=expected_wait), abs=timedelta(seconds=1))
+
+
+def test_infer_gives_up_after_max_retries(svc, monkeypatch):
+    """上限到達後は通常の InsufficientData と同じく Critical で最終失敗にする。"""
+    import narops.service as svc_module
+    from narops.errors import DataNotYetPublished
+
+    def boom(*a, **k):
+        raise DataNotYetPublished("b_body_weight が 1/10 頭で欠測しています")
+
+    monkeypatch.setattr(svc_module, "build_for_race", boom)
+    alert_sender = _RecordingAlertSender()
+    svc.alert_sender = alert_sender
+
+    plan_day_endpoint(svc, DAY)
+    out = infer_endpoint(svc, RACE_ID, attempt=svc.cfg.infer_max_retries)
+
+    assert out.status == "insufficient_data"
+    assert len(alert_sender.sent) == 1
+    assert "[Critical]" in alert_sender.sent[0].title
+    retry_tasks = [t for t in svc.queue.tasks.values() if t.endpoint == "/infer"
+                  and t.payload.get("attempt", 0) > svc.cfg.infer_max_retries]
+    assert retry_tasks == [], "上限を超えて再試行タスクを積んでいます"
+
+
 def test_infer_stops_when_final_layer_is_stale(wh, cfg, release_dir, schedule_rows):
     """DB-04: 鮮度ゲートで落ちたら推論しない。"""
     from nar.config import feature_config

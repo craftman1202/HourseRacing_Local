@@ -22,7 +22,7 @@ from .db.backend import Warehouse
 from .db.freshness import watermark
 from .db.schema import RECORD_COLUMN_MAP
 from .db.types import localize_utc
-from .errors import AsOfViolation, InsufficientData
+from .errors import AsOfViolation, DataNotYetPublished, InsufficientData
 from .model.manifest import FeatureSpec, Manifest, verify_feature_spec
 from .shared import ASOF_FEATURES, assert_prerace, to_prerace
 
@@ -329,7 +329,10 @@ def assert_serving_inputs(frame: pd.DataFrame, feature_config,
         values = pd.to_numeric(frame[col], errors="coerce")
         n_missing = int(values.isna().sum())
         if n_missing:
-            raise InsufficientData(
+            # 出馬表への掲載待ちが実際にありうる（docstring 参照）ので
+            # InsufficientData ではなく DataNotYetPublished にする。
+            # infer_endpoint はこれをリトライ対象として扱う。
+            raise DataNotYetPublished(
                 f"{col} が {n_missing}/{len(frame)} 頭で欠測しています。"
                 "ばんえいの重量は競技のハンデそのもので、中央値で埋めると"
                 "事実と違う前提の予測になります（出馬表への掲載待ちの可能性）。"

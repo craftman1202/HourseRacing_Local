@@ -560,7 +560,12 @@ def test_banei_inference_refuses_a_card_without_body_weights():
         "b_body_weight": [np.nan] * 10,
         "h_winrate_prior": [0.1] * 10,
     })
-    with pytest.raises(InsufficientData, match="b_body_weight"):
+    # DataNotYetPublished は InsufficientData のサブクラス。infer_endpoint が
+    # これをリトライ対象として区別できるよう、具体的な型で固定する
+    # （2026-09-21、032026092103 でリトライ無しのまま推論が止まっていた実例）。
+    from narops.errors import DataNotYetPublished
+
+    with pytest.raises(DataNotYetPublished, match="b_body_weight"):
         assert_serving_inputs(frame, cfg, declared)
 
 
@@ -680,8 +685,13 @@ def test_serving_check_rejects_an_implausible_body_weight():
         "b_weight_carried": [600.0] * 9,
         "b_body_weight": [956.0, 880.0, 982.0, 943.0, 22.0, 2.0, 913.0, 11.0, 931.0],
     })
-    with pytest.raises(InsufficientData, match="妥当域"):
+    from narops.errors import DataNotYetPublished
+
+    with pytest.raises(InsufficientData, match="妥当域") as exc_info:
         assert_serving_inputs(frame, cfg, declared)
+    assert not isinstance(exc_info.value, DataNotYetPublished), (
+        "解析ミスによる異常値はリトライしても直らないので、DataNotYetPublished"
+        "にしてはいけません")
 
 
 def test_serving_check_accepts_real_banei_body_weights():

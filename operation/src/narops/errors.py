@@ -44,6 +44,20 @@ class InsufficientData(OpsError):
     """出馬表未確定・枠順未定など、推論してはいけない状態（IN-09）。"""
 
 
+class DataNotYetPublished(InsufficientData):
+    """データは欠けているが、原因が「まだ公開されていないだけ」と分かっている場合。
+
+    `InsufficientData` の中でもこれだけはリトライで直る見込みがある
+    （例: ばんえいの馬体重・負担重量は発走13分前に載ることが多いが、
+    確実にその時刻までに載るとは限らない）。`jobs.RetryPolicy` の
+    `NON_RETRYABLE` は `InsufficientData` を一律リトライ対象外にしているが、
+    これはそのままだと「常に取れないデータ」と「今だけ取れていないデータ」を
+    区別できない。このサブクラスだけ区別して扱う（2026-09-21、
+    032026092103 で b_body_weight が1頭欠測しリトライ無しで推論が
+    止まっていた実例を受けて追加）。
+    """
+
+
 class NormalizationError(OpsError):
     """レース内確率の総和が 1 でない（IN-01）。配信するより届かないほうがまし` 。"""
 

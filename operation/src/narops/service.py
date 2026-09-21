@@ -30,20 +30,21 @@ from .db.merge import refresh_live
 from .discord.client import DiscordSender, dedupe_key, already_sent, record_sent
 from .discord.format import Embed, alert_embed, race_embed
 from .errors import (
-    InsufficientData, NormalizationError, RaceExpired, StaleDataError, ZeroFillForbidden,
+    DataNotYetPublished, InsufficientData, NormalizationError, RaceExpired, StaleDataError,
+    ZeroFillForbidden,
 )
 from .features import build_for_race, save_snapshot
 from .inference import PoolSizeModel, assert_within_window, run_inference
-from .jobs import UpdateBudget, record_run
+from .jobs import RetryPolicy, UpdateBudget, record_run
 from .mode import Mode, OperatingState
 from .monitoring import MonitorConfig, check_coverage, check_model_freshness, check_rf_guards
 from .nar_source import NarFetchError, NarSource, NoRacesRemaining
 from .pipeline import (
     InferenceOutcome, day_budget_remaining, write_bet_candidates, write_prediction,
 )
-from .scheduling import BANEI_BABA_CODES, INFER, coverage, plan_day, reconcile
+from .scheduling import BANEI_BABA_CODES, INFER, coverage, infer_task_name, plan_day, reconcile
 from .shared import track_names
-from .tasks import TaskQueue
+from .tasks import Task, TaskQueue
 
 log = logging.getLogger(__name__)
 
@@ -434,9 +435,45 @@ def _record_skew(wh: Warehouse, report, clock: Clock) -> None:
     }])))
 
 
+def _retry_infer_later(svc: Services, race_id: str, start_ts, attempt: int,
+                       reason: str) -> InferenceOutcome | None:
+    """`DataNotYetPublished` を一定時間後の `/infer` 再実行として積み直す。
+
+    上限（`cfg.infer_max_retries`）に達していれば None を返し、呼び出し側が
+    通常の最終失敗（Critical アラート）として扱う。積み直した先の時刻が
+    推論窓を過ぎていても、ここでは判定しない — 次回呼び出しの
+    `assert_within_window` が `RaceExpired` として自然に打ち切る。
+    """
+    if attempt >= svc.cfg.infer_max_retries:
+        return None
+    backoff = svc.cfg.infer_retry_backoff_sec
+    wait_sec = backoff[min(attempt, len(backoff) - 1)] if backoff else 60
+    fire = svc.clock.now() + timedelta(seconds=wait_sec)
+    name = f"{infer_task_name(race_id, start_ts)}-retry{attempt + 1}"
+    svc.queue.enqueue(Task(name, INFER, {"race_id": race_id, "attempt": attempt + 1}, fire))
+    log.info("%s: %s のため %d 秒後に再試行します（%d/%d 回目）",
+             race_id, reason[:80], wait_sec, attempt + 1, svc.cfg.infer_max_retries)
+    return InferenceOutcome.failed(
+        race_id,
+        f"{reason}。{wait_sec}秒後に再試行します（{attempt + 1}/{svc.cfg.infer_max_retries}回目）",
+        retryable=True, status="insufficient_data")
+
+
 # ------------------------------------------------------------------- /infer
-def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
-    """1レースの推論。設計書 §3.3 の順序どおり。"""
+def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOutcome:
+    """1レースの推論。設計書 §3.3 の順序どおり。
+
+    `attempt` は Cloud Tasks のペイロードで運ぶリトライ回数（0 = 初回）。
+    Cloud Run の1リクエストは5分でタイムアウトするため、`time.sleep` で
+    バックオフを待つことはできない。`DataNotYetPublished`（出馬表の
+    掲載待ちなど、時間が経てば直る可能性がある欠測）に限り、
+    `conf/ops.yaml` の `inference.retry_backoff_sec` だけ先の時刻に
+    `/infer` を再度叩くタスクを積み直す（IN-11: 一時障害はリトライ、
+    データ欠損は原則リトライしないが、DataNotYetPublished はその例外）。
+    再エンキューした時刻が推論窓（発走 `lead_minutes`±`lead_tolerance_sec`）
+    を外れていれば、次回呼び出しの `assert_within_window` が自然に
+    `RaceExpired` として打ち切る。
+    """
     day = business_date(svc.clock.now())
     row = _schedule_row(svc.wh, race_id)
     if row is None:
@@ -522,6 +559,14 @@ def infer_endpoint(svc: Services, race_id: str) -> InferenceOutcome:
             class_level=int(row.get("class_level", 1)),
             day_budget_remaining=day_budget_remaining(
                 svc.wh, day, svc.cfg.max_bet_per_day))
+    except DataNotYetPublished as exc:
+        retried = _retry_infer_later(svc, race_id, row["start_ts"], attempt, str(exc))
+        if retried is not None:
+            return retried
+        # リトライ上限に達した、または再エンキュー先が推論窓の外。ここから
+        # 先は他の InsufficientData と同じ最終失敗として扱う。
+        svc.alert("inference_error", f"{race_id}: {exc}", "Critical")
+        return InferenceOutcome.failed(race_id, str(exc), status="insufficient_data")
     except (ZeroFillForbidden, NormalizationError, InsufficientData) as exc:
         # リトライしても同じ結果。通知のみ（IN-11）
         svc.alert("inference_error", f"{race_id}: {exc}", "Critical")

@@ -85,7 +85,13 @@ class RetryPolicy:
     backoff_sec: tuple[int, ...] = (30, 90, 270)
     max_retries: int = 3
 
-    RETRYABLE = ("BigQueryTransient", "HTTPError", "TimeoutError", "ServiceUnavailable")
+    # DataNotYetPublished は InsufficientData のサブクラスだが、type().__name__
+    # は継承元ではなく実クラス名を返すので、ここに明示しない限り
+    # NON_RETRYABLE の "InsufficientData" には拾われず、かつ RETRYABLE にも
+    # 無いので既定では非リトライになる（2026-09-21、b_body_weight が
+    # 出馬表未掲載でリトライ無しに推論が止まっていた実例を受けて追加）。
+    RETRYABLE = ("BigQueryTransient", "HTTPError", "TimeoutError", "ServiceUnavailable",
+                "DataNotYetPublished")
     NON_RETRYABLE = ("AsOfViolation", "ZeroFillForbidden", "NormalizationError",
                      "InsufficientData", "FeatureSpecMismatch", "SkewError",
                      "StaleDataError", "RaceExpired")
