@@ -259,7 +259,7 @@ def test_dr01_backoff_then_give_up():
 
     p = RetryPolicy()
     waits = [p.wait_for(i) for i in (1, 2, 3)]
-    assert waits == [30, 90, 270], "指数バックオフになっていません"
+    assert waits == [20, 60, 180], "指数バックオフになっていません"
     assert not p.should_retry(TimeoutError(), attempt=3)
 
 

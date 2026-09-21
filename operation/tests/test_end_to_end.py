@@ -73,12 +73,12 @@ def fresh_wh(wh, clock):
 def test_full_race_pipeline(fresh_wh, card, race_row, release_dir, cfg):
     from nar.config import feature_config
 
-    clock = FixedClock(START - timedelta(minutes=13))
+    clock = FixedClock(START - timedelta(minutes=10))
     manifest = Manifest.read(release_dir / "manifest.json")
 
     # 1. 推論窓の検証
     remaining = assert_within_window(to_utc(START), clock, cfg)
-    assert 12 < remaining <= 13
+    assert 9 < remaining <= 10
 
     # 2. as-of 特徴量
     feats = build_for_race(fresh_wh, card, race_row, manifest, feature_config(),

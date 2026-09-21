@@ -358,7 +358,7 @@ def test_dc05_shows_a_hint_when_ev_passes_but_stake_rounds_to_zero():
     })
     e = race_embed(race_id="R", track_name="帯広ば", race_no=1, class_name="C1",
                    distance=200, start_ts=to_utc(START),
-                   now=to_utc(START) - timedelta(minutes=13),
+                   now=to_utc(START) - timedelta(minutes=10),
                    model_release="v-banei", track_used="A+B", candidates=cand)
     assert e is not None
     assert "(¥74)" in e.description
@@ -385,7 +385,7 @@ def test_dc05_hint_is_absent_when_ev_itself_fails():
     })
     e = race_embed(race_id="R", track_name="帯広ば", race_no=1, class_name="C1",
                    distance=200, start_ts=to_utc(START),
-                   now=to_utc(START) - timedelta(minutes=13),
+                   now=to_utc(START) - timedelta(minutes=10),
                    model_release="v-banei", track_used="A", candidates=cand)
     assert e is None, "EV 基準未満なので通知自体が出ないはず"
 
@@ -409,7 +409,7 @@ def test_dc05_shows_both_win_and_place_probability_when_available():
     })
     e = race_embed(race_id="R", track_name="帯広ば", race_no=1, class_name="C1",
                    distance=200, start_ts=to_utc(START),
-                   now=to_utc(START) - timedelta(minutes=13), candidates=cand,
+                   now=to_utc(START) - timedelta(minutes=10), candidates=cand,
                    model_release="v-banei", track_used="A+B")
     assert e is not None
     assert "単勝" in e.description and "複勝" in e.description
@@ -447,7 +447,7 @@ def test_dc05_rows_are_sorted_by_win_probability_not_ev():
     })
     e = race_embed(race_id="R", track_name="大井", race_no=1, class_name="C1",
                    distance=1200, start_ts=to_utc(START),
-                   now=to_utc(START) - timedelta(minutes=13),
+                   now=to_utc(START) - timedelta(minutes=10),
                    model_release="v-test", track_used="A", candidates=cand,
                    min_ev=1.0)
     assert e is not None
