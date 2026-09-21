@@ -121,7 +121,13 @@ python -m narops.cli --family banei bootstrap-current \
 `b_weight_rel` はレース内の相対量なので、一部の馬だけ埋まると馬同士の優劣が
 直接歪む。そこで `narops.features.assert_serving_inputs` が
 `banei.REQUIRED_AT_SERVING`（負担重量・馬体重）の欠測を検出して
-`InsufficientData` で止める（IN-09 と同じ考え方）。
+`DataNotYetPublished`（`InsufficientData` のサブクラス、IN-09 と同じ考え方）で
+止める。2026-09-21 まではここで止まった推論が二度と再試行されなかった
+（`retry_backoff_sec`/`max_retries` は `conf/ops.yaml` にあるだけで読まれて
+おらず、`/infer` は結果に関わらず常に 200 を返していた）。今は
+`infer_endpoint` がこの例外だけをリトライ対象として区別し、`/infer` を
+`inference.retry_backoff_sec` 秒後に再度呼ぶタスクを積み直す
+（`service.py::_retry_infer_later`）。
 
 止まった場合はカバレッジ低下として観測される。黙って劣化した予測を配るより
 検知しやすいほうを選んでいる。要求するのは**そのモデルが実際に使う列**だけで、

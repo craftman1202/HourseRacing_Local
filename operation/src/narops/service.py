@@ -5,7 +5,7 @@ Cloud Scheduler / Cloud Tasks から呼ばれる6本。設計書 §3.1 のタイ
     02:40  POST /ingest-and-refresh   月次取り込み → 確定層 MERGE → skew 検証
     08:00  POST /plan-day             当日スケジュール取得 → Tasks 積み込み
     随時   POST /snapshot-odds        オッズ収集 + スケジュール再照合
-    -13分  POST /infer                推論 → 配信
+    -10分  POST /infer                推論 → 配信
     12/16/20 POST /refresh-live       ライブ層更新
     月 04:00 POST /weekly-report      モデル鮮度・RF ガード・週次レポート
 
@@ -560,6 +560,11 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
             day_budget_remaining=day_budget_remaining(
                 svc.wh, day, svc.cfg.max_bet_per_day))
     except DataNotYetPublished as exc:
+        # 2026-09-21 診断用: 032026092104 でリトライが積まれず直接 Critical に
+        # 落ちた原因が、テスト環境（インメモリ TaskQueue）の再現では再現しない。
+        # attempt と上限値を実測するため、リトライを諦める判断に必ず1行残す。
+        log.info("%s: DataNotYetPublished 捕捉。attempt=%d, infer_max_retries=%d",
+                 race_id, attempt, svc.cfg.infer_max_retries)
         retried = _retry_infer_later(svc, race_id, row["start_ts"], attempt, str(exc))
         if retried is not None:
             return retried

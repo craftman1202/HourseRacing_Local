@@ -77,7 +77,7 @@ def svc(wh, cfg, release_dir, schedule_rows):
     from nar.config import feature_config
     from narops.db.merge import merge_final
 
-    clock = FixedClock(START - timedelta(minutes=13))
+    clock = FixedClock(START - timedelta(minutes=10))
     # 鮮度ゲート（DB-04）は確定層の最新確定日が前日以上であることを要求する。
     # make_results は 4 レースで1日進むので、DAY-1 = 8/24 に届くには 28 レース要る。
     # 20 レースだと 8/22 止まりで、推論系のテストが全部ゲートで弾かれる。
@@ -294,7 +294,7 @@ def test_infer_stops_when_final_layer_is_stale(wh, cfg, release_dir, schedule_ro
     """DB-04: 鮮度ゲートで落ちたら推論しない。"""
     from nar.config import feature_config
 
-    clock = FixedClock(START - timedelta(minutes=13))
+    clock = FixedClock(START - timedelta(minutes=10))
     src = StubSource()
     src.schedule_rows = schedule_rows
     svc = Services(wh=wh, cfg=cfg, clock=clock, source_factory=lambda: src,
@@ -510,7 +510,7 @@ def test_discord_notification_includes_track_name_class_name_and_horse_names(
     from narops.model.manifest import Manifest
     from narops.service import Services
 
-    clock = FixedClock(START - timedelta(minutes=13))
+    clock = FixedClock(START - timedelta(minutes=10))
     merge_final(wh, make_results(n_races=28, start_day=18, seed=2), clock=clock)
 
     class StubSource:
