@@ -82,11 +82,10 @@ class RetryPolicy:
     同じ結果になるものを3回試すのは、失敗を3倍遅くするだけで何も得られない。
     """
 
-    # conf/ops.yaml の inference.retry_backoff_sec/max_retries と揃える
-    # （2026-09-21、lead_minutes を13→10分に短縮した際に合わせて短縮）。
+    # conf/ops.yaml の inference.retry_backoff_sec/max_retries と揃える。
     # 実際の /infer リクエストはこの既定値ではなく OpsConfig 経由の値を使う
     # （service.py::_retry_infer_later）。ここはこのクラス単体のテスト用。
-    backoff_sec: tuple[int, ...] = (20, 60, 180)
+    backoff_sec: tuple[int, ...] = (30, 90, 270)
     max_retries: int = 3
 
     # DataNotYetPublished は InsufficientData のサブクラスだが、type().__name__

@@ -58,7 +58,7 @@ def manifests(release_dir) -> list[Manifest]:
 
 @pytest.fixture
 def at_window() -> FixedClock:
-    return FixedClock(START - timedelta(minutes=10))
+    return FixedClock(START - timedelta(minutes=13))
 
 
 @pytest.fixture
@@ -108,8 +108,8 @@ def test_in02_scratched_horse_is_excluded_and_renormalized(
 
 # ------------------------------------------------------------------ IN-03
 def test_in03_within_window_is_accepted(cfg):
-    assert_within_window(START, FixedClock(START - timedelta(minutes=10)), cfg)
-    assert_within_window(START, FixedClock(START - timedelta(minutes=10, seconds=45)), cfg)
+    assert_within_window(START, FixedClock(START - timedelta(minutes=13)), cfg)
+    assert_within_window(START, FixedClock(START - timedelta(minutes=13, seconds=45)), cfg)
 
 
 def test_in03_after_start_is_expired(cfg):
@@ -310,7 +310,7 @@ def test_in11_backoff_schedule():
     from narops.jobs import RetryPolicy
 
     p = RetryPolicy()
-    assert [p.wait_for(i) for i in (1, 2, 3)] == [20, 60, 180]
+    assert [p.wait_for(i) for i in (1, 2, 3)] == [30, 90, 270]
 
 
 # ------------------------------------------------------ 経済計算（自己インパクト）

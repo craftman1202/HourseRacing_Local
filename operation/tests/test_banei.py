@@ -328,7 +328,7 @@ def test_infer_runs_end_to_end_for_a_banei_race(wh, cfg):
     from nar.features.builder import asof_features
 
     start = jst_datetime(2026, 8, 25, 16, 5)
-    clock = FixedClock(start - timedelta(minutes=10))
+    clock = FixedClock(start - timedelta(minutes=13))
     merge_final(wh, _banei_history(n_races=40, start_day=18, seed=5), clock=clock)
 
     names = tuple(asof_features(feature_config(BANEI_CONF)))

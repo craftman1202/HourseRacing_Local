@@ -54,11 +54,11 @@ def test_sc02_odds_task_count_within_design_budget(schedule, queue, clock, cfg):
     assert n_odds <= 120, f"オッズ収集タスクが {n_odds} 本で設計本数を超えています"
 
 
-def test_sc02_infer_tasks_fire_10_minutes_before(schedule, queue, clock, cfg):
+def test_sc02_infer_tasks_fire_13_minutes_before(schedule, queue, clock, cfg):
     plan_day(schedule, queue, clock, cfg)
     for _, r in schedule.iterrows():
         t = queue.tasks[infer_task_name(r["race_id"], r["start_ts"])]
-        assert (to_utc(r["start_ts"]) - t.scheduled_for) == timedelta(minutes=10)
+        assert (to_utc(r["start_ts"]) - t.scheduled_for) == timedelta(minutes=13)
 
 
 def test_sc02_cancelled_races_are_skipped(schedule, queue, clock, cfg):
@@ -119,7 +119,7 @@ def test_sc04_delay_beyond_threshold_reschedules(queue, clock, cfg):
     old = jst_datetime(2026, 8, 25, 20, 35)
     new = old + timedelta(minutes=20)
     queue.enqueue(Task(infer_task_name(rid, old), INFER, {"race_id": rid},
-                       to_utc(old) - timedelta(minutes=10)))
+                       to_utc(old) - timedelta(minutes=13)))
 
     actions = reconcile({rid: new}, {rid: old}, queue, clock, cfg)
     kinds = [a.kind for a in actions]
@@ -134,21 +134,21 @@ def test_sc04_small_change_does_not_reschedule(queue, clock, cfg):
     old = jst_datetime(2026, 8, 25, 20, 35)
     new = old + timedelta(minutes=2)          # 閾値 5 分未満
     queue.enqueue(Task(infer_task_name(rid, old), INFER, {"race_id": rid},
-                       to_utc(old) - timedelta(minutes=10)))
+                       to_utc(old) - timedelta(minutes=13)))
     actions = reconcile({rid: new}, {rid: old}, queue, clock, cfg)
     assert actions == []
     assert infer_task_name(rid, old) in queue.tasks
 
 
 def test_sc04_late_change_switches_to_immediate(cfg):
-    """変更が発走10分前を過ぎてから起きたら即時実行に切り替える。"""
+    """変更が発走13分前を過ぎてから起きたら即時実行に切り替える。"""
     rid = "202026082511"
     old = jst_datetime(2026, 8, 25, 20, 35)
     new = old + timedelta(minutes=6)
-    now = FixedClock(new - timedelta(minutes=5))   # もう10分前を過ぎている
+    now = FixedClock(new - timedelta(minutes=5))   # もう13分前を過ぎている
     q = TaskQueue()
     q.enqueue(Task(infer_task_name(rid, old), INFER, {"race_id": rid},
-                   to_utc(old) - timedelta(minutes=10)))
+                   to_utc(old) - timedelta(minutes=13)))
 
     actions = reconcile({rid: new}, {rid: old}, q, now, cfg)
     immediate = [a for a in actions if a.kind == "immediate"]
