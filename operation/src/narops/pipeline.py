@@ -89,12 +89,17 @@ def write_bet_candidates(wh: Warehouse, race_id: str, frame: pd.DataFrame,
                "AND model_release = ?", [race_date, race_id, model_release])
     if bets.empty:
         return 0
+    # 「EV の高い方を1点」経路では馬ごとに券種が違い、ev/ev_adjusted には
+    # 賭ける券種の EV（ev_bet）を入れる。従来経路は単勝のみ。
+    types = bets["bet_type"] if "bet_type" in bets.columns else bet_type
+    ev = bets["ev_bet"] if "ev_bet" in bets.columns else bets["ev"]
+    ev_adj = bets["ev_bet"] if "ev_bet" in bets.columns else bets["ev_adjusted"]
     payload = pd.DataFrame({
         "race_id": race_id, "horse_no": bets["horse_no"].astype(int),
-        "race_date": race_date, "model_release": model_release, "bet_type": bet_type,
+        "race_date": race_date, "model_release": model_release, "bet_type": types,
         "stake_yen": bets["stake_yen"].astype(int),
-        "ev": bets["ev"].astype(float),
-        "ev_adjusted": bets["ev_adjusted"].astype(float),
+        "ev": ev.astype(float),
+        "ev_adjusted": ev_adj.astype(float),
         "kelly": bets.get("kelly", pd.Series([0.0] * len(bets))).astype(float),
         "computed_at": clock.now(),
     })[BET_COLUMNS]

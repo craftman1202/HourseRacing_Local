@@ -76,6 +76,8 @@ class ModelBundle:
     standardizer: Any = field(default_factory=lambda: IdentityStandardizer())
     feature_config: Any = None
     pool_model: PoolSizeModel = field(default_factory=PoolSizeModel)
+    # 複勝専用モデル（runtime.PlaceModels）。平地の新しいリリースだけが持つ。
+    place: Any = None
 
     def is_loaded(self) -> bool:
         return self.manifest is not None and bool(self.models)
@@ -102,6 +104,7 @@ class Services:
     manifest: Any = None
     pool_model: PoolSizeModel = field(default_factory=PoolSizeModel)
     feature_config: Any = None
+    place: Any = None
 
     # ばんえい用の配布物。未設定なら「ばんえいの推論はしない」を意味する。
     # 平地のモデルで代替はしない — 距離も回りも無い競技に、距離と回りの
@@ -154,7 +157,7 @@ class Services:
                     "平地モデルでは推論しません。")
             return self.banei
         return ModelBundle(self.manifest, self.models, self.standardizer,
-                           self.feature_config, self.pool_model)
+                           self.feature_config, self.pool_model, self.place)
 
     def supports_banei(self) -> bool:
         return self.banei is not None and self.banei.is_loaded()
@@ -540,10 +543,13 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
         save_snapshot(svc.wh, feats, race_id, bundle.manifest.model_id, svc.clock)
 
         odds = None
+        place_odds = None
         if not odds_df.empty:
             merged = feats.frame[["horse_no"]].merge(odds_df, on="horse_no", how="left")
             if merged["odds_win"].notna().all():
                 odds = merged["odds_win"]
+            if {"pl_min", "pl_max"} <= set(merged.columns):
+                place_odds = merged[["pl_min", "pl_max"]].reset_index(drop=True)
 
         # 補完・標準化は配布物に固めた統計量で行う。ここを飛ばすと、学習が
         # 標準化済みの特徴量で決めた係数・分割点に、生の値を渡すことになる。
@@ -558,7 +564,8 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
             baba_code=int(row["baba_code"]),
             class_level=int(row.get("class_level", 1)),
             day_budget_remaining=day_budget_remaining(
-                svc.wh, day, svc.cfg.max_bet_per_day))
+                svc.wh, day, svc.cfg.max_bet_per_day),
+            place=bundle.place, place_odds=place_odds, strategy=svc.cfg.strategy)
     except DataNotYetPublished as exc:
         # 2026-09-21 診断用: 032026092104 でリトライが積まれず直接 Critical に
         # 落ちた原因が、テスト環境（インメモリ TaskQueue）の再現では再現しない。

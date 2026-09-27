@@ -130,10 +130,12 @@ def _attach_model(svc: Any, cfg: OpsConfig) -> None:
         return
     release = svc.registry.load(rid, verify=True)   # ハッシュ不一致なら例外
     svc.manifest = release.manifest
-    from .runtime import load_models
+    from .runtime import load_models, load_place_models
 
     svc.models, svc.standardizer = load_models(release)
-    log.info("モデル %s を読み込みました（%d モデル）", rid, len(svc.models))
+    svc.place = load_place_models(release)
+    log.info("モデル %s を読み込みました（%d モデル、複勝モデル %s）", rid, len(svc.models),
+             "あり" if svc.place is not None else "なし")
     _attach_banei_model(svc, root, bucket)
 
 

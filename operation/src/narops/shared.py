@@ -26,6 +26,9 @@ from nar.eval.calibration import TemperatureScaler  # noqa: E402
 from nar.eval.economic import (  # noqa: E402
     NOMINAL_TAKEOUT, effective_odds, implied_takeout, inverse_odds_sum, kelly_fraction,
 )
+from nar.eval.place import (  # noqa: E402
+    estimated_place_odds, max_ev_bets, place_probability, place_slots,
+)
 from nar.features.builder import ASOF_FEATURES  # noqa: E402
 from nar.features.shrinkage import shrink  # noqa: E402
 from nar.models.ensemble import ConstrainedStacker  # noqa: E402
@@ -47,6 +50,7 @@ __all__ = [
     "implied_takeout", "inverse_odds_sum", "shrink",
     "race_softmax", "normalize_within_race", "race_nll", "harville_place_probability",
     "expected_calibration_error", "summary_metrics",
+    "estimated_place_odds", "max_ev_bets", "place_probability", "place_slots",
     "learning_package_root", "learning_conf_dir", "feature_config_for",
     "track_names",
 ]

@@ -343,13 +343,49 @@ def parse_entry_card(html: str, race_id: str) -> pd.DataFrame:
 
 
 def parse_win_odds(html: str, race_id: str) -> pd.DataFrame:
-    """単勝オッズ。取れなければ空を返す（トラックA 単独へ縮退する）。"""
+    """単勝オッズと複勝オッズの範囲。取れなければ空を返す（トラックA 単独へ縮退する）。
+
+    OddsTanFuku の表は「単勝 オッズ」「複勝オッズ (3着払い)」「同 .1」の3列で、
+    複勝は下限（`6.2-` の形）と上限の2列に分かれて出る。複勝列が無い・読めない
+    ときは pl_min / pl_max を NaN にする（複勝は判定に使わない）。単勝の値は
+    複勝列の有無に関わらず同じに取る。
+    """
     try:
         # 生の文字列を渡すと、新しい pandas はファイルパスとして開こうとして
         # FileNotFoundError になる（本文がそのままエラーに載る）。
         tables = pd.read_html(StringIO(html))
     except ValueError:
         return pd.DataFrame(columns=["race_id", "horse_no", "odds_win"])
+
+    def num(s: pd.Series) -> pd.Series:
+        return pd.to_numeric(s.astype(str).str.extract(r"([\d.]+)")[0], errors="coerce")
+
+    for t in tables:
+        cols = [str(c) for c in t.columns]
+        if not any("馬番" in c for c in cols):
+            continue
+        odds_col = next((c for c in cols if "単勝" in c or
+                         ("オッズ" in c and "複勝" not in c)), None)
+        no_col = next(c for c in cols if "馬番" in c)
+        if odds_col is None:
+            continue
+        df = t.copy()
+        df.columns = cols
+        place_cols = [c for c in cols if "複勝" in c]
+        out = pd.DataFrame({
+            "race_id": race_id,
+            "horse_no": pd.to_numeric(df[no_col], errors="coerce"),
+            "odds_win": num(df[odds_col]),
+            "pl_min": num(df[place_cols[0]]) if len(place_cols) >= 2 else float("nan"),
+            "pl_max": num(df[place_cols[1]]) if len(place_cols) >= 2 else float("nan"),
+        }).dropna(subset=["horse_no", "odds_win"])
+        out["horse_no"] = out["horse_no"].astype(int)
+        # 0 以下のオッズは存在しない。ゼロ埋めの痕跡として弾く（IN-05）
+        out = out[out["odds_win"] > 0].reset_index(drop=True)
+        bad = ~((out["pl_min"] > 0) & (out["pl_max"] >= out["pl_min"]))
+        out.loc[bad, ["pl_min", "pl_max"]] = float("nan")
+        return out
+    return pd.DataFrame(columns=["race_id", "horse_no", "odds_win"])
 
     for t in tables:
         cols = [str(c) for c in t.columns]

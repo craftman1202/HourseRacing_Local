@@ -26,8 +26,9 @@ from .errors import (
 )
 from .model.manifest import Manifest, verify_no_version_mix
 from .shared import (
-    NOMINAL_TAKEOUT, ConstrainedStacker, effective_odds, harville_place_probability,
-    kelly_fraction, normalize_within_race, race_softmax,
+    NOMINAL_TAKEOUT, ConstrainedStacker, effective_odds, estimated_place_odds,
+    harville_place_probability, kelly_fraction, max_ev_bets, normalize_within_race,
+    place_probability, place_slots, race_softmax,
 )
 
 TOL = 1e-9
@@ -51,6 +52,10 @@ class InferenceResult:
     notes: list[str] = field(default_factory=list)
 
     def bet_candidates(self, min_ev: float) -> pd.DataFrame:
+        # 「EV の高い方を1点」経路では賭ける券種の EV が ev_bet に入る（複勝を買う馬は
+        # 単勝の EV が閾値未満でありうる）。賭け金を決めた時点で閾値判定は済んでいる。
+        if "ev_bet" in self.frame.columns:
+            return self.frame[self.frame["stake_yen"] > 0].copy()
         return self.frame[(self.frame["ev_adjusted"] >= min_ev)
                           & (self.frame["stake_yen"] > 0)].copy()
 
@@ -156,8 +161,16 @@ def run_inference(
     day_budget_remaining: int | None = None,
     takeout: float = NOMINAL_TAKEOUT["単勝"],
     model_temperatures: dict[str, float] | None = None,
+    place: Any = None,
+    place_odds: pd.DataFrame | None = None,
+    strategy: Any = None,
 ) -> InferenceResult:
-    """1レース分の推論。"""
+    """1レース分の推論。
+
+    `place`（runtime.PlaceModels）と `strategy`（config.StrategyConfig）が両方あるときは
+    複勝専用モデルで P(複勝) を出し、「単勝・複勝の EV の高い方を1点」で賭け金を決める。
+    `place_odds` は features と同じ行順の pl_min / pl_max。無ければ単勝だけで判定する。
+    """
     verify_no_version_mix(manifests)            # MP-06
     if features.empty:
         raise InsufficientData(f"{race_id}: 特徴量が空です")
@@ -198,7 +211,18 @@ def run_inference(
     # 複勝（上位3着以内）確率。単勝モデルしか無いので Harville 式で近似する
     # （単勝確率だけから求める、着差分布などを要求しない標準的な近似）。
     # 通知で「単勝ダメでも複勝は堅い」を読めるようにするのが目的。
-    p_top3 = harville_place_probability(p, race_ids, k=3)
+    use_place = place is not None and strategy is not None
+    if use_place:
+        k = place_slots(np.full(len(features), len(features)))
+        place_scores = {name: np.asarray(m.score(features), dtype=float)
+                        for name, m in place.models.items()}
+        p_top3 = place_probability(place_scores, place.temperatures, place.weights,
+                                   place.ensemble_temperature, race_ids, k)
+        if not np.isclose(p_top3.sum(), k[0], atol=1e-6):
+            raise NormalizationError(
+                f"複勝確率の総和 {p_top3.sum():.6f} が複勝枠 {k[0]} と一致しません")
+    else:
+        p_top3 = harville_place_probability(p, race_ids, k=3)
 
     out = pd.DataFrame({
         "horse_no": features["horse_no"].to_numpy(),
@@ -220,8 +244,20 @@ def run_inference(
         out["odds_win"] = np.nan
         notes.append("オッズ未取得のためトラックA 単独で算出（ゼロ埋めはしない）")
 
-    out = _economics(out, cfg, pool_model, baba_code, class_level, clock,
-                     takeout, day_budget_remaining)
+    if use_place:
+        out["p_place"] = p_top3
+        if (place_odds is not None and len(place_odds) == len(features)
+                and {"pl_min", "pl_max"} <= set(place_odds.columns)):
+            out["pl_min"] = place_odds["pl_min"].to_numpy(dtype=float)
+            out["pl_max"] = place_odds["pl_max"].to_numpy(dtype=float)
+        else:
+            out["pl_min"] = np.nan
+            out["pl_max"] = np.nan
+            notes.append("複勝オッズ未取得のため単勝だけで判定")
+        out = _economics_max_ev(out, strategy, race_ids, cfg, day_budget_remaining)
+    else:
+        out = _economics(out, cfg, pool_model, baba_code, class_level, clock,
+                         takeout, day_budget_remaining)
     return InferenceResult(race_id, manifests[0].model_id, track_used, out,
                            per_model, clock.now(), notes)
 
@@ -294,6 +330,47 @@ def _economics(out: pd.DataFrame, cfg: OpsConfig, pool_model: PoolSizeModel | No
     # ときだけ実額と別の値になる。budget 按分の対象外（実額ではないので
     # 予算を消費しない）。
     out["stake_hint_yen"] = np.floor(raw_stake).astype(int)
+    return out
+
+
+def _economics_max_ev(out: pd.DataFrame, strategy, race_ids: np.ndarray, cfg: OpsConfig,
+                      day_budget_remaining: int | None) -> pd.DataFrame:
+    """単勝・複勝の EV の高い方を1点（判定と金額は nar.eval.place.max_ev_bets の単一実装）。
+
+    自己インパクト補正はしない（戦略の検証が補正なしのため）。ev_adjusted には
+    単勝 EV をそのまま入れる — prediction テーブルの列の意味（単勝の期待値）を変えない。
+    1日の上限（betting.max_per_day）だけは従来どおり掛ける。
+    """
+    out["pl_est"] = estimated_place_odds(out["pl_min"], out["pl_max"],
+                                         strategy.place_odds_alpha)
+    out["pool_yen"] = np.nan
+    out["odds_effective"] = out["odds_win"]
+    out["stake_hint_yen"] = 0
+    if out["odds_win"].isna().all():
+        out["ev"] = np.nan
+        out["ev_adjusted"] = np.nan
+        out["ev_place"] = out["p_place"] * out["pl_est"]
+        out["ev_bet"] = np.nan
+        out["bet_type"] = None
+        out["kelly"] = 0.0
+        out["stake_yen"] = 0
+        return out
+
+    bets = max_ev_bets(race_ids, out["p_win"], out["odds_win"], out["p_place"], out["pl_est"],
+                       min_ev=strategy.min_ev, min_prob=strategy.min_prob,
+                       budget_win=strategy.budget_win_per_race,
+                       budget_place=strategy.budget_place_per_race,
+                       kelly_scale=strategy.kelly_scale)
+    out["ev"] = bets["ev_win"].to_numpy()
+    out["ev_adjusted"] = bets["ev_win"].to_numpy()
+    out["ev_place"] = bets["ev_place"].to_numpy()
+    out["kelly"] = bets["kelly"].to_numpy()
+    stake = bets["stake_yen"].to_numpy(dtype=float)
+    if day_budget_remaining is not None:
+        stake = _fit_budget(stake, min(day_budget_remaining, cfg.max_bet_per_day))
+    out["stake_yen"] = stake.astype(int)
+    out["bet_type"] = np.where(out["stake_yen"] > 0, bets["bet_type"].to_numpy(), None)
+    out["ev_bet"] = np.where(out["stake_yen"] > 0, bets["ev_chosen"].to_numpy(), np.nan)
     return out
 
 

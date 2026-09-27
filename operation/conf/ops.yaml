@@ -57,7 +57,23 @@ discord:
 betting:
   kelly_fraction: 0.25           # 1/4 Kelly。段階計画では 0.1 から始める
   max_per_race: 3000
-  max_per_day: 10000
+  max_per_day: 50000             # 2026-09-28 10000→50000（EV の高い方を1点の導入に合わせて。バックテストの日次最大 ¥41,100）
+
+# 単勝・複勝の EV の高い方を1点（2026-09-27）。複勝モデル（place_meta.json）を持つ
+# リリースの平地だけに効く。ばんえい・旧リリースは上の betting（単勝のみ・1/4 Kelly・
+# 自己インパクト補正あり）のまま。
+# 閾値は 2026-02〜05 のオッズ付き OOS で選び、06〜09 で1回測った値
+# （learning/scripts/deployed_rule_backtest.py: dev ROI 0.89 / test ROI 1.07
+#  [95%CI 0.95, 1.20]）。オッズは確定値で測っているので実運用より楽観側。
+# 自己インパクト補正はしていない（10分前オッズで判定し、自分の投票でオッズが下がる分は未反映）。
+strategy:
+  name: max_ev
+  min_ev: 1.0                    # 選んだ券種の EV がこれ以上
+  min_prob: 0.6                  # 選んだ券種の的中確率がこれ以上（単勝なら p_win、複勝なら p_place）
+  kelly_scale: 1.0               # フルケリー
+  budget_win_per_race: 10000     # 単勝の1レース予算（Σケリー比率 ≤ 1）
+  budget_place_per_race: 10000   # 複勝の1レース予算
+  place_odds_alpha: 0.257        # 複勝の想定払戻 = 下限 + α(上限 − 下限)。実払戻の平均位置
 
 skew:
   # 日内更新に起因する差分が許容される列。これ以外の乖離は即 Blocker（SK-03）

@@ -1,0 +1,139 @@
+{
+  "purpose": "production",
+  "target": "is_place (k=3 if n>=8, 2 if 5..7)",
+  "win_release": "v2026.09.17-C",
+  "train_period": {
+    "start": "1998-01-01",
+    "end": "2026-09-17"
+  },
+  "calibration_after": "2026-06-17",
+  "holdout_days": 90,
+  "n_fit_rows": 4263762,
+  "n_calibration_rows": 35037,
+  "feature_names": [
+    "h_top3rate_prior",
+    "h_si_last3",
+    "h_winrate_prior",
+    "j_winrate_shrunk",
+    "jt_winrate_wilson",
+    "d_pair_winrate",
+    "d_all_starts",
+    "d_track_winrate",
+    "d_track_starts",
+    "d_dist_winrate",
+    "h_starts_prior",
+    "d_best_speed",
+    "h_days_since_prev",
+    "d_dist_starts",
+    "d_pair_starts",
+    "d_all_top3rate",
+    "d_best_speed_good",
+    "d_all_winrate",
+    "d_extra_starts",
+    "h_best_si_prior",
+    "d_has_outside_history"
+  ],
+  "params": {
+    "clogit_l2": 0.001,
+    "lgbm": {
+      "objective": "lambdarank",
+      "metric": "ndcg",
+      "ndcg_eval_at": [
+        1,
+        3
+      ],
+      "label_gain": [
+        0.0,
+        1.0
+      ],
+      "learning_rate": 0.05,
+      "num_leaves": 31,
+      "min_data_in_leaf": 50,
+      "feature_fraction": 0.8,
+      "bagging_fraction": 0.8,
+      "bagging_freq": 1,
+      "verbosity": -1,
+      "seed": 0,
+      "deterministic": true,
+      "force_row_wise": true
+    },
+    "lgbm_rounds": 300,
+    "tabm": {
+      "k": 4,
+      "hidden": 128,
+      "n_layers": 2,
+      "epochs": 3,
+      "batch_races": 256,
+      "seed": 0
+    }
+  },
+  "temperatures": {
+    "clogit": 0.8756501866726916,
+    "lgbm": 1.1638096136778855,
+    "tabm": 0.7596804950423065
+  },
+  "ensemble_weights": {
+    "clogit": 5.228482323227467e-10,
+    "lgbm": 0.5065525987867913,
+    "tabm": 0.4934474006903606
+  },
+  "ensemble_temperature": 0.9869614049011879,
+  "calibration_metrics": {
+    "clogit": {
+      "logloss": 0.5254876814892997,
+      "brier": 0.17465543467617994,
+      "auc": 0.7396254843965815,
+      "top1_place_rate": 0.6242165242165242,
+      "topk_precision": 0.5163990938638826,
+      "ece10": 0.01585788171179277,
+      "n_rows": 35037,
+      "n_races": 3510
+    },
+    "lgbm": {
+      "logloss": 0.5057604335624787,
+      "brier": 0.16754368262236063,
+      "auc": 0.7638593040232973,
+      "top1_place_rate": 0.6652421652421653,
+      "topk_precision": 0.5366886634492268,
+      "ece10": 0.010921942124175368,
+      "n_rows": 35037,
+      "n_races": 3510
+    },
+    "tabm": {
+      "logloss": 0.5058144042688382,
+      "brier": 0.16780345085698448,
+      "auc": 0.7627710855960139,
+      "top1_place_rate": 0.6566951566951567,
+      "topk_precision": 0.5349157884369152,
+      "ece10": 0.00411324310689224,
+      "n_rows": 35037,
+      "n_races": 3510
+    },
+    "ensemble": {
+      "logloss": 0.5045021658569723,
+      "brier": 0.16723768168899117,
+      "auc": 0.7645379162898127,
+      "top1_place_rate": 0.6638176638176638,
+      "topk_precision": 0.5362946912242686,
+      "ece10": 0.006702422498012852,
+      "n_rows": 35037,
+      "n_races": 3510
+    },
+    "baseline_uniform": {
+      "logloss": 0.5973849957439927,
+      "brier": 0.20392023197378964,
+      "auc": 0.559107464970383,
+      "top1_place_rate": 0.26096866096866095,
+      "topk_precision": 0.2911454742440658,
+      "ece10": 0.00011416502554443578,
+      "n_rows": 35037,
+      "n_races": 3510
+    }
+  },
+  "oos_evaluated_by": "artifacts/place/oos_place_metrics.json（評価用モデル）",
+  "timings_sec": {
+    "clogit": 87.37222003936768,
+    "lgbm": 64.94378018379211,
+    "tabm": 490.13680243492126
+  }
+}

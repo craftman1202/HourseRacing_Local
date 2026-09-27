@@ -251,12 +251,15 @@ def _race(wh: Any, state: OperatingState, race_id: str) -> dict:
     if sched.empty:
         raise NotFound(f"レース {race_id} の開催情報がありません")
 
+    # 1頭につき券種は1つ（単勝か複勝のどちらか）。MAX で券種も一緒に取る。
     bets = wh.query(
-        "SELECT horse_no, SUM(stake_yen) AS stake_yen FROM bet_candidate "
-        "WHERE race_id = ? AND race_date = ? GROUP BY horse_no",
+        "SELECT horse_no, SUM(stake_yen) AS stake_yen, MAX(bet_type) AS bet_type "
+        "FROM bet_candidate WHERE race_id = ? AND race_date = ? GROUP BY horse_no",
         [race_id, race_date])
     stake_by_horse = (dict(zip(bets["horse_no"].tolist(), bets["stake_yen"].tolist()))
                       if len(bets) else {})
+    type_by_horse = (dict(zip(bets["horse_no"].tolist(), bets["bet_type"].tolist()))
+                     if len(bets) else {})
 
     horses = []
     for row in pred.sort_values("p_win", ascending=False).itertuples():
@@ -271,6 +274,8 @@ def _race(wh: Any, state: OperatingState, race_id: str) -> dict:
             "ev": ev,
             "ev_adjusted": ev_adjusted,
             "stake_yen": int(stake_by_horse.get(row.horse_no, 0)),
+            "bet_type": (type_by_horse.get(row.horse_no)
+                         if type_by_horse.get(row.horse_no) in ("単勝", "複勝") else None),
         })
 
     return {

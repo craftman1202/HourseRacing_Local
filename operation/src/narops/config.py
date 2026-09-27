@@ -126,6 +126,9 @@ class OpsConfig:
     model_stale_days: int
     max_bytes_billed: int
     raw: dict[str, Any] = field(default_factory=dict)
+    # 単勝・複勝の EV の高い方を1点（2026-09-27）。複勝モデルを持つリリースだけに効く。
+    # 値の根拠は learning/scripts/deployed_rule_backtest.py。
+    strategy: "StrategyConfig | None" = None
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "OpsConfig":
@@ -154,4 +157,32 @@ class OpsConfig:
             model_stale_days=int(raw["monitoring"]["model_stale_days"]),
             max_bytes_billed=int(raw["gcp"]["max_bytes_billed"]),
             raw=raw,
+            strategy=StrategyConfig.from_raw(raw.get("strategy")),
         )
+
+
+@dataclass(frozen=True)
+class StrategyConfig:
+    """「単勝・複勝の EV の高い方を1点」の閾値と予算。
+
+    EV = 予測確率 × 想定払戻（単勝はオッズ、複勝はオッズ範囲の下限 + α·幅）。
+    EV ≥ min_ev かつ選んだ券種の的中確率 ≥ min_prob の馬に、券種ごとの1レース予算 ×
+    ケリー比率（× kelly_scale）を賭ける。
+    """
+
+    min_ev: float
+    min_prob: float
+    kelly_scale: float
+    budget_win_per_race: int
+    budget_place_per_race: int
+    place_odds_alpha: float
+
+    @classmethod
+    def from_raw(cls, d: dict | None) -> "StrategyConfig | None":
+        if not d or d.get("name") != "max_ev":
+            return None
+        return cls(min_ev=float(d["min_ev"]), min_prob=float(d["min_prob"]),
+                   kelly_scale=float(d["kelly_scale"]),
+                   budget_win_per_race=int(d["budget_win_per_race"]),
+                   budget_place_per_race=int(d["budget_place_per_race"]),
+                   place_odds_alpha=float(d["place_odds_alpha"]))

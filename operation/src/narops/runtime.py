@@ -148,3 +148,62 @@ def load_models(release) -> tuple[dict, "Standardizer"]:
             f"アンサンブル重みが付いているのに実体が無いモデル: {sorted(missing)}。"
             "重みの前提が崩れるので推論しません。")
     return models, standardizer
+
+
+@dataclass
+class PlaceModels:
+    """複勝専用モデル（2026-09-27 追加）。単勝と同じ特徴量・標準化統計量を使う。
+
+    リリースに `place_meta.json` がある版だけが持つ。ばんえい・旧リリースには無く、
+    その場合の推論は単勝だけの従来経路のまま（複勝確率を単勝モデルから作って
+    賭け金を決めることはしない — 検証していない組み合わせになる）。
+    """
+
+    models: dict
+    temperatures: dict[str, float]
+    weights: dict[str, float]
+    ensemble_temperature: float
+    release_meta: dict
+
+
+def load_place_models(release) -> PlaceModels | None:
+    path = Path(release.path)
+    meta_file = path / "place_meta.json"
+    if not meta_file.exists():
+        return None
+    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    spec = json.loads((path / "feature_spec.json").read_text(encoding="utf-8"))
+    features = list(spec["names"])
+    if list(meta.get("feature_names", features)) != features:
+        raise ArtifactIntegrityError(
+            f"{release.release_id}: 複勝モデルの特徴量が単勝モデルと一致しません。"
+            "標準化統計量を共有できないので読み込みません。")
+    models: dict = {}
+    beta_file = path / "place_clogit_beta.json"
+    if beta_file.exists():
+        payload = json.loads(beta_file.read_text(encoding="utf-8"))
+        models["clogit"] = LinearScorer(
+            "place_clogit", np.asarray([payload["beta"][f] for f in features], dtype=float),
+            features)
+    lgbm_file = path / "place_lgbm_rank.txt"
+    if lgbm_file.exists():
+        import lightgbm as lgb
+
+        models["lgbm"] = LgbmScorer("place_lgbm", lgb.Booster(model_file=str(lgbm_file)),
+                                    features)
+    onnx_file = path / "place_tabm.onnx"
+    if onnx_file.exists():
+        import onnxruntime as ort
+
+        sess = ort.InferenceSession(str(onnx_file), providers=["CPUExecutionProvider"])
+        models["tabm"] = OnnxScorer("place_tabm", sess, features, sess.get_inputs()[0].name)
+
+    weights = {k: float(v) for k, v in meta["ensemble_weights"].items() if v > 0}
+    missing = set(weights) - set(models)
+    if missing:
+        raise ArtifactIntegrityError(
+            f"{release.release_id}: 複勝モデルの重みが付いているのに実体が無い: {sorted(missing)}")
+    return PlaceModels(models=models, temperatures=dict(meta["temperatures"]),
+                       weights=weights,
+                       ensemble_temperature=float(meta["ensemble_temperature"]),
+                       release_meta=meta)

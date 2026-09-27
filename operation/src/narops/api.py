@@ -25,6 +25,9 @@ class HorsePrediction(BaseModel):
     ev: float | None = None
     ev_adjusted: float | None = None
     stake_yen: int = Field(ge=0)
+    # 推奨の券種（単勝／複勝）。「EV の高い方を1点」導入（2026-09-27）で馬ごとに
+    # 変わるようになった。推奨が無い馬・旧データは None（投票テキストでは単勝扱い）。
+    bet_type: Literal["単勝", "複勝"] | None = None
 
 
 class RacePrediction(BaseModel):
@@ -260,7 +263,7 @@ def build_app(services: dict[str, Any] | None = None):
             pred = svc["race"](race_id)
         except NotFound as e:
             raise HTTPException(status_code=404, detail=str(e)) from None
-        slips = [Slip(race_id=race_id, bet_type="単勝", horse_no=h.horse_no,
+        slips = [Slip(race_id=race_id, bet_type=h.bet_type or "単勝", horse_no=h.horse_no,
                       stake_yen=h.stake_yen)
                  for h in pred.horses if h.stake_yen > 0]
         return {"site": site, "text": render(slips, site)}

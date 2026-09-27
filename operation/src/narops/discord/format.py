@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 
 from ..clock import to_jst
@@ -93,6 +94,13 @@ def race_embed(
     EV が閾値未満のレースは通知自体を省略する。1日60レースすべてを通知すると
     通知疲れで見なくなり、それが最大の運用リスク（設計書 §4.3）。
     """
+    if "ev_place" in candidates.columns:
+        return _race_embed_max_ev(
+            race_id=race_id, track_name=track_name, race_no=race_no,
+            class_name=class_name, distance=distance, start_ts=start_ts, now=now,
+            model_release=model_release, track_used=track_used, candidates=candidates,
+            horse_names=horse_names, day_budget_remaining=day_budget_remaining,
+            min_ev=min_ev)
     shown = candidates[candidates["ev_adjusted"] >= min_ev]
     if shown.empty:
         return None
@@ -139,6 +147,65 @@ def race_embed(
               f"発走 {jst:%H:%M} (残り{remaining:.0f}分)",
         description="\n".join(lines),
         color=ev_color(best),
+        footer=f"{model_release} / トラック{track_used}",
+    )
+
+
+BET_MARK = {"単勝": "単", "複勝": "複"}
+
+
+def _race_embed_max_ev(
+    *, race_id: str, track_name: str, race_no: int, class_name: str, distance: int,
+    start_ts: datetime, now: datetime, model_release: str, track_used: str,
+    candidates: pd.DataFrame, horse_names: dict[int, str] | None,
+    day_budget_remaining: int | None, min_ev: float,
+) -> Embed | None:
+    """「単勝・複勝の EV の高い方を1点」の通知（2026-09-27）。
+
+    単勝 EV・複勝 EV のどちらかが min_ev 以上の馬と、賭ける馬を載せる。
+    推奨欄は券種（単/複）と金額。金額は bet_candidate の stake_yen と一致させる（DC-05）。
+    """
+    ev_w = candidates["ev_adjusted"]
+    ev_p = candidates["ev_place"]
+    shown = candidates[(ev_w >= min_ev) | (ev_p >= min_ev) | (candidates["stake_yen"] > 0)]
+    if shown.empty:
+        return None
+
+    names = horse_names or {}
+    jst = to_jst(start_ts)
+    remaining = (start_ts - now).total_seconds() / 60.0
+    lines = ["```", " 馬番 馬名              単勝   複勝  単EV  複EV  推奨"]
+    for _, r in shown.sort_values("p_win", ascending=False).iterrows():
+        no = int(r["horse_no"])
+        name = (names.get(no, f"{no}番") + "　" * 9)[:9]
+        rec = "—"
+        if r["stake_yen"] > 0:
+            rec = f"{BET_MARK.get(r.get('bet_type'), '?')}{fmt_yen(r['stake_yen'])}"
+        lines.append(
+            f" {no:>3}  {name}  {fmt_pct(r['p_win']):>6} {fmt_pct(r['p_top3']):>6}"
+            f" {fmt_ev(r['ev_adjusted']):>5} {fmt_ev(r['ev_place']):>5}  {rec}")
+    lines.append("```")
+
+    bets = shown[shown["stake_yen"] > 0]
+    tail = [f"買い目合計 {fmt_yen(int(bets['stake_yen'].sum()))}"]
+    for t in ("単勝", "複勝"):
+        part = bets[bets.get("bet_type") == t] if "bet_type" in bets.columns else bets.iloc[0:0]
+        if len(part):
+            tail.append(f"{t} {fmt_yen(int(part['stake_yen'].sum()))}")
+    if day_budget_remaining is not None:
+        tail.append(f"本日残枠 {fmt_yen(day_budget_remaining)}")
+    lines.append("　".join(tail))
+    lines.append("推奨: 単勝・複勝の EV の高い方を1点（EV≥1・的中確率≥60%・ケリー）")
+    if shown["ev_place"].isna().all():
+        lines.append("⚠ 複勝オッズ未取得のため単勝だけで判定")
+
+    best = float(np.nanmax(np.r_[ev_w.loc[shown.index].to_numpy(dtype=float),
+                                 ev_p.loc[shown.index].to_numpy(dtype=float), -np.inf]))
+    return Embed(
+        title=f"🏇 {track_name} {race_no}R  {class_name} {distance}m  "
+              f"発走 {jst:%H:%M} (残り{remaining:.0f}分)",
+        description="\n".join(lines),
+        color=COLOR_GREEN if len(bets) else ev_color(best),
         footer=f"{model_release} / トラック{track_used}",
     )
 
