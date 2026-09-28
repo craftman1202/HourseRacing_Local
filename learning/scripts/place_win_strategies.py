@@ -8,8 +8,12 @@
   data_real/bronze/odds/                     複勝オッズの下限・上限（確定値）
   data_real/silver/payout.parquet            実払戻（単勝・複勝）
 
-期間はオッズのある 2026-02-02〜2026-09-02 だけ。前半（〜05-31）で閾値を選び、
-後半（06-01〜）はその閾値で1回測るだけにする。
+期間はオッズのある期間だけ。平地は 2026-02-02〜2026-09-02、ばんえいは帯広ばのみ
+オッズがあり 2026-02-02〜2026-08-31。前半（〜05-31）で閾値を選び、後半はその閾値で
+1回測るだけにする。
+
+系統は `PLACE_FAMILY` 環境変数で切り替える（既定は平地 flat）。ばんえいは件数が
+1桁少ないので `MIN_DEV_BETS` を下げてある（`place_model.py` と同じ規約）。
 
 **オッズはどちらも確定オッズ**（締切前には手に入らない値）。ROI はその分だけ楽観的。
 """
@@ -18,6 +22,7 @@ from __future__ import annotations
 
 import glob
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -29,11 +34,24 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from nar.transform import silver as S  # noqa: E402
 
-OUT = ROOT / "artifacts/place"
+FAMILY = os.environ.get("PLACE_FAMILY", "flat")
+if FAMILY not in ("flat", "banei"):
+    raise ValueError(f"PLACE_FAMILY は flat/banei のいずれか（受領: {FAMILY!r}）")
+
+_PATHS = {
+    "flat": dict(out="artifacts/place", win_oos_pred="artifacts/oos_predictions.parquet",
+                min_dev_bets=300),
+    "banei": dict(out="artifacts/place_banei",
+                 win_oos_pred="artifacts/banei/oos_predictions.parquet",
+                 min_dev_bets=30),
+}[FAMILY]
+
+OUT = ROOT / _PATHS["out"]
+WIN_OOS_PRED = ROOT / _PATHS["win_oos_pred"]
 DEV_END = pd.Timestamp("2026-05-31")
 T_GRID = (1.0, 1.05, 1.1, 1.2, 1.3, 1.5, 2.0)
 X_GRID = (0.0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
-MIN_DEV_BETS = 300
+MIN_DEV_BETS = _PATHS["min_dev_bets"]
 N_BOOT = 2000
 
 
@@ -68,7 +86,7 @@ def realized(bet_type: str) -> pd.DataFrame:
 
 
 def load() -> pd.DataFrame:
-    win = pd.read_parquet(ROOT / "artifacts/oos_predictions.parquet",
+    win = pd.read_parquet(WIN_OOS_PRED,
                           columns=["race_id", "horse_no", "race_date", "is_win", "ensemble"])
     plc = pd.read_parquet(OUT / "oos_place_predictions.parquet",
                           columns=["race_id", "horse_no", "n_runners", "k_place", "is_place",

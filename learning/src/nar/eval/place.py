@@ -109,21 +109,25 @@ def kelly_stakes(p: np.ndarray, o: np.ndarray, eligible: np.ndarray, race_ids: n
     return np.floor(f * budget / unit) * unit, f
 
 
-def max_ev_bets(race_ids: np.ndarray, p_win: np.ndarray, odds_win: np.ndarray,
-                p_place: np.ndarray, place_odds: np.ndarray, *, min_ev: float = 1.0,
-                min_prob: float = 0.6, budget_win: float = 10_000,
-                budget_place: float = 10_000, kelly_scale: float = 1.0,
-                unit: int = 100) -> pd.DataFrame:
-    """馬ごとに単勝・複勝の EV の高い方を選び、EV≥min_ev かつその的中確率≥min_prob なら賭ける。
+def _side_ev_bets(race_ids: np.ndarray, p_win: np.ndarray, odds_win: np.ndarray,
+                  p_place: np.ndarray, place_odds: np.ndarray, *, pick_higher: bool,
+                  min_ev: float, min_prob: float, budget_win: float, budget_place: float,
+                  kelly_scale: float, unit: int) -> pd.DataFrame:
+    """馬ごとに単勝・複勝いずれかの側を選び、EV≥min_ev かつその的中確率≥min_prob なら賭ける。
 
-    金額は券種ごとの予算にケリー比率を掛けたもの。複勝の確率・オッズが無い馬は単勝だけで判定する。
-    返り値の行順は入力と同じ。
+    `pick_higher` が True なら EV の高い方（本番の運用戦略）、False なら低い方を選ぶ。
+    複勝の確率・オッズが無い馬は常に単勝だけで判定する（比べる相手が無いので「高い/低い」の
+    区別自体が付かない）。金額は券種ごとの予算にケリー比率を掛けたもの。返り値の行順は入力と同じ。
     """
     rid = np.asarray(race_ids)
     pw, ow = np.asarray(p_win, float), np.asarray(odds_win, float)
     pp, op = np.asarray(p_place, float), np.asarray(place_odds, float)
     ev_w, ev_p = pw * ow, pp * op
-    pick_win = ~(np.nan_to_num(ev_p, nan=-np.inf) > np.nan_to_num(ev_w, nan=-np.inf))
+    no_place = ~np.isfinite(ev_p)
+    if pick_higher:
+        pick_win = no_place | (ev_w >= ev_p)
+    else:
+        pick_win = no_place | (ev_w <= ev_p)
     ev = np.where(pick_win, ev_w, ev_p)
     prob = np.where(pick_win, pw, pp)
     eligible = np.isfinite(ev) & (ev >= min_ev) & (prob >= min_prob)
@@ -136,4 +140,81 @@ def max_ev_bets(race_ids: np.ndarray, p_win: np.ndarray, odds_win: np.ndarray,
         "stake_yen": stake.astype(int),
         "kelly": np.where(pick_win, f_w, f_p),
         "ev_chosen": ev,
+    })
+
+
+def max_ev_bets(race_ids: np.ndarray, p_win: np.ndarray, odds_win: np.ndarray,
+                p_place: np.ndarray, place_odds: np.ndarray, *, min_ev: float = 1.0,
+                min_prob: float = 0.6, budget_win: float = 10_000,
+                budget_place: float = 10_000, kelly_scale: float = 1.0,
+                unit: int = 100) -> pd.DataFrame:
+    """馬ごとに単勝・複勝の EV の高い方を選び、EV≥min_ev かつその的中確率≥min_prob なら賭ける（本番の戦略）。"""
+    return _side_ev_bets(race_ids, p_win, odds_win, p_place, place_odds, pick_higher=True,
+                         min_ev=min_ev, min_prob=min_prob, budget_win=budget_win,
+                         budget_place=budget_place, kelly_scale=kelly_scale, unit=unit)
+
+
+def min_ev_bets(race_ids: np.ndarray, p_win: np.ndarray, odds_win: np.ndarray,
+                p_place: np.ndarray, place_odds: np.ndarray, *, min_ev: float = 1.0,
+                min_prob: float = 0.6, budget_win: float = 10_000,
+                budget_place: float = 10_000, kelly_scale: float = 1.0,
+                unit: int = 100) -> pd.DataFrame:
+    """馬ごとに単勝・複勝の EV の**低い**方を選び、EV≥min_ev かつその的中確率≥min_prob なら賭ける。
+
+    分析用の対照戦略（本番では使わない）。「高い方を選ぶ」を裏返しただけなので、複勝
+    オッズが無い馬は単勝だけで判定する挙動は max_ev_bets と同じ。
+    """
+    return _side_ev_bets(race_ids, p_win, odds_win, p_place, place_odds, pick_higher=False,
+                         min_ev=min_ev, min_prob=min_prob, budget_win=budget_win,
+                         budget_place=budget_place, kelly_scale=kelly_scale, unit=unit)
+
+
+def max_ev_bets_with_fallback(race_ids: np.ndarray, p_win: np.ndarray, odds_win: np.ndarray,
+                              p_place: np.ndarray, place_odds: np.ndarray, *,
+                              min_ev: float = 1.0, min_prob: float = 0.6,
+                              budget_win: float = 10_000, budget_place: float = 10_000,
+                              kelly_scale: float = 1.0, unit: int = 100) -> pd.DataFrame:
+    """まず EV の高い方を判定し（本番と同じ）、それが**的中確率不足だけを理由に**見送りに
+    なるときだけ、EV の低い方（もう一方の券種）に判定を移す。
+
+    分析用の対照戦略（本番では使わない）。「高い方が EV 不足で見送り」のときは低い方の
+    EV も必ず min_ev 未満になる（低い方 ≤ 高い方 なので）ため、フォールバックしても意味が
+    無く、実際にフォールバックが起きるのは「高い方は EV 十分・確率不足」の行だけになる。
+    複勝の確率・オッズが無い馬は他方の券種が無いのでフォールバックしようがなく、
+    max_ev_bets と同じ単勝のみの判定になる。
+    """
+    rid = np.asarray(race_ids)
+    pw, ow = np.asarray(p_win, float), np.asarray(odds_win, float)
+    pp, op = np.asarray(p_place, float), np.asarray(place_odds, float)
+    ev_w, ev_p = pw * ow, pp * op
+    no_place = ~np.isfinite(ev_p)
+    high_is_win = no_place | (ev_w >= ev_p)
+    ev_high = np.where(high_is_win, ev_w, ev_p)
+    prob_high = np.where(high_is_win, pw, pp)
+    ev_low = np.where(high_is_win, ev_p, ev_w)
+    prob_low = np.where(high_is_win, pp, pw)
+
+    high_ok = np.isfinite(ev_high) & (ev_high >= min_ev) & (prob_high >= min_prob)
+    # 低い方への切り替えは「高い方が EV は足りているが確率が足りない」行だけに限る。
+    # 高い方が EV 不足なら低い方はさらに EV が低い（≤ 高い方）ので必ず不成立になる。
+    fallback_ok = (~no_place & np.isfinite(ev_high) & (ev_high >= min_ev)
+                  & (prob_high < min_prob) & np.isfinite(ev_low)
+                  & (ev_low >= min_ev) & (prob_low >= min_prob))
+
+    pick_win = np.where(high_ok, high_is_win, np.where(fallback_ok, ~high_is_win, high_is_win))
+    ev = np.where(high_ok, ev_high, np.where(fallback_ok, ev_low, ev_high))
+    prob = np.where(high_ok, prob_high, np.where(fallback_ok, prob_low, prob_high))
+    eligible = high_ok | fallback_ok
+
+    s_w, f_w = kelly_stakes(pw, ow, eligible & pick_win, rid, budget_win, kelly_scale, unit)
+    s_p, f_p = kelly_stakes(pp, op, eligible & ~pick_win, rid, budget_place, kelly_scale, unit)
+    stake = np.where(pick_win, s_w, s_p)
+    return pd.DataFrame({
+        "ev_win": ev_w, "ev_place": ev_p,
+        "bet_type": np.where(stake > 0, np.where(pick_win, "単勝", "複勝"), None),
+        "stake_yen": stake.astype(int),
+        "kelly": np.where(pick_win, f_w, f_p),
+        "ev_chosen": np.where(stake > 0, ev, np.nan),
+        # 実際にフォールバック側（低い方）で賭けが成立した行だけ True
+        "fallback": (stake > 0) & fallback_ok & ~high_ok,
     })

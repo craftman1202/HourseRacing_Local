@@ -9,8 +9,8 @@ import pytest
 
 from nar.eval import metrics
 from nar.eval.place import (
-    estimated_place_odds, harville_topk, kelly_stakes, max_ev_bets, place_probability,
-    place_slots,
+    estimated_place_odds, harville_topk, kelly_stakes, max_ev_bets,
+    max_ev_bets_with_fallback, min_ev_bets, place_probability, place_slots,
 )
 
 
@@ -100,3 +100,93 @@ def test_max_ev_bets_falls_back_to_win_when_place_odds_are_missing():
                       np.array([0.9, 0.6]), np.array([np.nan, np.nan]))
     assert out["bet_type"].iloc[0] == "単勝"
     assert np.isnan(out["ev_place"]).all()
+
+
+def test_min_ev_bets_picks_the_lower_ev_side():
+    rid = np.array(["R"] * 4)
+    out = min_ev_bets(
+        rid,
+        p_win=np.array([0.65, 0.30, 0.62, 0.05]),
+        odds_win=np.array([1.8, 2.0, 1.5, 30.0]),
+        p_place=np.array([0.90, 0.70, 0.95, 0.30]),
+        place_odds=np.array([1.1, 1.6, 1.2, 5.0]),
+        min_ev=1.0, min_prob=0.6)
+    # 0: 単 1.17 vs 複 0.99 -> 低い方は複勝(0.99<1.0で不成立) / 1: 単0.6 vs 複1.12 -> 低い方は単勝(0.6<1.0で不成立)
+    # 2: 単0.93 vs 複1.14 -> 低い方は単勝(0.93<1.0で不成立) / 3: 単0.15 vs 複1.5 -> 低い方は単勝(不成立)
+    assert list(out["bet_type"]) == [None, None, None, None]
+    assert (out["stake_yen"] == 0).all()
+
+
+def test_min_ev_bets_can_still_bet_when_the_lower_side_clears_the_bar():
+    rid = np.array(["R", "R"])
+    out = min_ev_bets(rid, p_win=np.array([0.70, 0.62]), odds_win=np.array([1.6, 1.7]),
+                      p_place=np.array([0.90, 0.95]), place_odds=np.array([1.3, 1.25]),
+                      min_ev=1.0, min_prob=0.6)
+    # 単: 0.70*1.6=1.12 / 0.62*1.7=1.054 、複: 0.90*1.3=1.17 / 0.95*1.25=1.1875
+    # 低い方はどちらも単勝で、EV>=1・p_win>=0.6 なので両方ベット成立
+    assert list(out["bet_type"]) == ["単勝", "単勝"]
+    assert (out["stake_yen"] > 0).all()
+
+
+def test_min_ev_bets_falls_back_to_win_when_place_odds_are_missing():
+    out = min_ev_bets(np.array(["R", "R"]), np.array([0.7, 0.3]), np.array([1.6, 3.0]),
+                      np.array([0.9, 0.6]), np.array([np.nan, np.nan]))
+    assert out["bet_type"].iloc[0] == "単勝"
+    assert np.isnan(out["ev_place"]).all()
+
+
+def test_fallback_bets_the_high_side_when_it_already_clears_both_bars():
+    """高い方が確率もEVも満たすなら、フォールバックせず高い方のまま（max_ev_bets と同じ）。"""
+    rid = np.array(["R"])
+    out = max_ev_bets_with_fallback(rid, p_win=np.array([0.65]), odds_win=np.array([1.8]),
+                                    p_place=np.array([0.90]), place_odds=np.array([1.1]),
+                                    min_ev=1.0, min_prob=0.6)
+    ref = max_ev_bets(rid, p_win=np.array([0.65]), odds_win=np.array([1.8]),
+                      p_place=np.array([0.90]), place_odds=np.array([1.1]),
+                      min_ev=1.0, min_prob=0.6)
+    assert out["bet_type"].iloc[0] == ref["bet_type"].iloc[0] == "単勝"
+    assert not out["fallback"].iloc[0]
+
+
+def test_fallback_switches_to_the_low_side_when_only_probability_blocks_the_high_side():
+    """高い方 EV=1.17（単勝, p=0.30<0.6で不成立）→ 低い方 EV=1.08（複勝, p=0.75≥0.6）に切り替え。"""
+    rid = np.array(["R"])
+    out = max_ev_bets_with_fallback(rid, p_win=np.array([0.30]), odds_win=np.array([3.9]),
+                                    p_place=np.array([0.75]), place_odds=np.array([1.44]),
+                                    min_ev=1.0, min_prob=0.6)
+    assert out["ev_win"].iloc[0] > out["ev_place"].iloc[0]      # 単勝が「高い方」
+    assert out["bet_type"].iloc[0] == "複勝"                     # だが賭けたのは低い方
+    assert out["fallback"].iloc[0]
+    assert out["stake_yen"].iloc[0] > 0
+    assert out["ev_chosen"].iloc[0] == pytest.approx(out["ev_place"].iloc[0])
+
+
+def test_fallback_does_not_bet_when_the_high_side_fails_on_ev_not_probability():
+    """高い方が EV 不足で見送りのときは、低い方は必ずさらに EV が低いので賭けない。"""
+    rid = np.array(["R"])
+    out = max_ev_bets_with_fallback(rid, p_win=np.array([0.30]), odds_win=np.array([2.5]),
+                                    p_place=np.array([0.75]), place_odds=np.array([1.2]),
+                                    min_ev=1.0, min_prob=0.6)
+    assert out["ev_win"].iloc[0] < 1.0    # 単勝(高い方) EV = 0.75 < 1.0
+    assert out["bet_type"].iloc[0] is None
+    assert not out["fallback"].iloc[0]
+
+
+def test_fallback_does_not_bet_when_the_low_side_also_fails_probability():
+    rid = np.array(["R"])
+    out = max_ev_bets_with_fallback(rid, p_win=np.array([0.30]), odds_win=np.array([3.9]),
+                                    p_place=np.array([0.50]), place_odds=np.array([2.16]),
+                                    min_ev=1.0, min_prob=0.6)
+    # 単勝(高い方) EV=1.17・p=0.30<0.6 不成立 → 複勝(低い方) EV=1.08・p=0.50<0.6 も不成立
+    assert out["bet_type"].iloc[0] is None
+    assert not out["fallback"].iloc[0]
+
+
+def test_fallback_matches_max_ev_bets_when_place_data_is_missing():
+    out = max_ev_bets_with_fallback(np.array(["R", "R"]), np.array([0.7, 0.3]),
+                                    np.array([1.6, 3.0]), np.array([0.9, 0.6]),
+                                    np.array([np.nan, np.nan]))
+    ref = max_ev_bets(np.array(["R", "R"]), np.array([0.7, 0.3]), np.array([1.6, 3.0]),
+                      np.array([0.9, 0.6]), np.array([np.nan, np.nan]))
+    assert list(out["bet_type"]) == list(ref["bet_type"])
+    assert not out["fallback"].any()

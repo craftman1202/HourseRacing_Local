@@ -17,11 +17,23 @@
 複勝圏の頭数 k: 出走 8 頭以上 = 3、5〜7 頭 = 2、4 頭以下は発売なし（学習・評価から除外）。
 実払戻との一致率は 99.3%（2026-09-27 に payout.parquet と突合）。
 
+系統は `PLACE_FAMILY` 環境変数で切り替える（既定は平地 flat）。ばんえいは
+`PLACE_FAMILY=banei NAR_CONF_DIR=conf_banei` の両方をセットして呼ぶこと —
+前者はこのスクリプトのパス選択、後者は `nar.config`（履歴集計・embargo 導出）の
+切り替えで、意味が別なので両方要る。
+
 使い方（learning/ で）:
     PYTHONPATH=src .venv/bin/python scripts/place_model.py fit
     PYTHONPATH=src .venv/bin/python scripts/place_model.py score-oos --unlock-oos --reason "..."
 
-`fit` は OOS に一切触れない。`score-oos` は OOS を開封して台帳に記録する（1回だけ）。
+    PLACE_FAMILY=banei NAR_CONF_DIR=conf_banei PYTHONPATH=src .venv/bin/python \
+        scripts/place_model.py fit
+    PLACE_FAMILY=banei NAR_CONF_DIR=conf_banei PYTHONPATH=src .venv/bin/python \
+        scripts/place_model.py score-oos --unlock-oos --reason "..."
+
+`fit` は OOS に一切触れない。`score-oos` は OOS を開封して台帳に記録する（1回だけ、
+系統ごとに別のログ — 平地は artifacts/oos_access.log、ばんえいは
+artifacts/banei/oos_access.log）。
 """
 
 from __future__ import annotations
@@ -29,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -50,14 +63,39 @@ from nar.train.pipeline import apply_stats, fit_stats, trainable  # noqa: E402
 
 log = logging.getLogger("place_model")
 
-GOLD = ROOT / "data_real/gold/features_noodds/features.parquet"
-WIN_EVAL_DIR = ROOT / "artifacts/final_eval_new"   # 単勝の評価用モデル（OOS 予測の出所）
-OUT = ROOT / "artifacts/place"
+FAMILY = os.environ.get("PLACE_FAMILY", "flat")
+if FAMILY not in ("flat", "banei"):
+    raise ValueError(f"PLACE_FAMILY は flat/banei のいずれか（受領: {FAMILY!r}）")
+if FAMILY == "banei" and os.environ.get("NAR_CONF_DIR") != "conf_banei":
+    raise RuntimeError("PLACE_FAMILY=banei には NAR_CONF_DIR=conf_banei も必要です"
+                      "（embargo・履歴集計の切り替えが別モジュールにあるため）。")
+
+_PATHS = {
+    "flat": dict(gold="data_real/gold/features_noodds/features.parquet",
+                win_eval="artifacts/final_eval_new", out="artifacts/place",
+                oos_log="artifacts/oos_access.log",
+                win_oos_pred="artifacts/oos_predictions.parquet",
+                default_win_release="v2026.09.17-C"),
+    "banei": dict(gold="data_real/gold/features_noodds_banei/features.parquet",
+                 win_eval="artifacts/final_banei_eval_new", out="artifacts/place_banei",
+                 oos_log="artifacts/banei/oos_access.log",
+                 win_oos_pred="artifacts/banei/oos_predictions.parquet",
+                 default_win_release="v2026.09.17-B-banei"),
+}[FAMILY]
+
+GOLD = ROOT / _PATHS["gold"]
+WIN_EVAL_DIR = ROOT / _PATHS["win_eval"]   # 単勝の評価用モデル（OOS 予測の出所）
+OUT = ROOT / _PATHS["out"]
+OOS_LOG = ROOT / _PATHS["oos_log"]
+WIN_OOS_PRED = ROOT / _PATHS["win_oos_pred"]
+DEFAULT_WIN_RELEASE = _PATHS["default_win_release"]
 MODELS = ("clogit", "lgbm", "tabm")
 HOLDOUT_DAYS = 90
 EPS = 1e-12
-# final_eval_new の学習条件（final_meta.json / lgbm_rank.txt のヘッダ / tabm.onnx の
-# パラメータ数から復元）。HPO 値は使っていない（当時の fit-final は既定値で学習）。
+# final_eval_new / final_banei_eval_new の学習条件（final_meta.json / lgbm_rank.txt の
+# ヘッダ / tabm.onnx のパラメータ数から復元）。両系統とも同じ fit-final 経路・同じ
+# 当時のバグ（--tabm-batch が効かず既定値 256 で学習）の影響下で作られているので同一値を使う。
+# HPO 値は使っていない（当時の fit-final は既定値で学習）。
 CLOGIT_L2 = 1e-3
 TABM_CFG = dict(k=4, hidden=128, n_layers=2, epochs=3, batch_races=256, seed=0)
 
@@ -260,7 +298,7 @@ def cmd_fit_prod(args) -> int:
         "feature_names": names, "params": params,
         "temperatures": temps, "ensemble_weights": dict(zip(MODELS, w.tolist())),
         "ensemble_temperature": ens_t, "calibration_metrics": cal_report,
-        "oos_evaluated_by": "artifacts/place/oos_place_metrics.json（評価用モデル）",
+        "oos_evaluated_by": str((OUT / "oos_place_metrics.json").relative_to(ROOT)) + "（評価用モデル）",
         "timings_sec": timings,
     }
     (out / "place_meta.json").write_text(json.dumps(meta_out, ensure_ascii=False, indent=2,
@@ -347,7 +385,7 @@ def cmd_score_oos(args) -> int:
     ccfg = cv_config()
     meta = json.loads((OUT / "final_eval/place_meta.json").read_text(encoding="utf-8"))
     feat, names, stats = load_frame()
-    guard = OOSGuard(ccfg, ROOT / "artifacts/oos_access.log")
+    guard = OOSGuard(ccfg, OOS_LOG)
     guard.unlock(args.reason)
 
     d = pd.to_datetime(feat["race_date"])
@@ -375,7 +413,7 @@ def cmd_score_oos(args) -> int:
     report["baseline_uniform"] = place_metrics(k / df["n_runners"].to_numpy(), y, rid, k)
 
     # 比較対象: 単勝モデル（既に開封・保存済みの OOS 予測）を Harville で複勝確率にしたもの
-    win = pd.read_parquet(ROOT / "artifacts/oos_predictions.parquet",
+    win = pd.read_parquet(WIN_OOS_PRED,
                           columns=["race_id", "horse_no", "ensemble"])
     preds = preds.merge(win.rename(columns={"ensemble": "pw_ensemble"}),
                         on=["race_id", "horse_no"], how="left")
@@ -409,7 +447,7 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("fit").set_defaults(func=cmd_fit)
     s = sub.add_parser("fit-prod")
-    s.add_argument("--win-release", default="v2026.09.17-C")
+    s.add_argument("--win-release", default=DEFAULT_WIN_RELEASE)
     s.set_defaults(func=cmd_fit_prod)
     s = sub.add_parser("score-oos")
     s.add_argument("--unlock-oos", action="store_true")
