@@ -64,10 +64,13 @@ from nar.train.pipeline import apply_stats, fit_stats, trainable  # noqa: E402
 log = logging.getLogger("place_model")
 
 FAMILY = os.environ.get("PLACE_FAMILY", "flat")
-if FAMILY not in ("flat", "banei"):
-    raise ValueError(f"PLACE_FAMILY は flat/banei のいずれか（受領: {FAMILY!r}）")
-if FAMILY == "banei" and os.environ.get("NAR_CONF_DIR") != "conf_banei":
-    raise RuntimeError("PLACE_FAMILY=banei には NAR_CONF_DIR=conf_banei も必要です"
+# 系統 → 必要な NAR_CONF_DIR（None = 既定の conf）。*_pop は人気順を足した派生系統。
+_CONF_FOR = {"flat": None, "banei": "conf_banei",
+             "flat_pop": "conf_pop", "banei_pop": "conf_banei_pop"}
+if FAMILY not in _CONF_FOR:
+    raise ValueError(f"PLACE_FAMILY は {tuple(_CONF_FOR)} のいずれか（受領: {FAMILY!r}）")
+if os.environ.get("NAR_CONF_DIR") != _CONF_FOR[FAMILY] and _CONF_FOR[FAMILY] is not None:
+    raise RuntimeError(f"PLACE_FAMILY={FAMILY} には NAR_CONF_DIR={_CONF_FOR[FAMILY]} も必要です"
                       "（embargo・履歴集計の切り替えが別モジュールにあるため）。")
 
 _PATHS = {
@@ -81,6 +84,18 @@ _PATHS = {
                  oos_log="artifacts/banei/oos_access.log",
                  win_oos_pred="artifacts/banei/oos_predictions.parquet",
                  default_win_release="v2026.09.17-B-banei"),
+    # 人気順の派生系統。OOS の開封は元の系統と同じ台帳に記録する（同じ OOS 期間を見るため）
+    "flat_pop": dict(gold="data_real/gold/features_noodds_pop/features.parquet",
+                     win_eval="artifacts/final_pop_eval", out="artifacts/place_pop",
+                     oos_log="artifacts/oos_access.log",
+                     win_oos_pred="artifacts/pop/oos_predictions.parquet",
+                     default_win_release=None),
+    "banei_pop": dict(gold="data_real/gold/features_noodds_banei_pop/features.parquet",
+                      win_eval="artifacts/final_banei_pop_eval",
+                      out="artifacts/place_banei_pop",
+                      oos_log="artifacts/banei/oos_access.log",
+                      win_oos_pred="artifacts/banei_pop/oos_predictions.parquet",
+                      default_win_release=None),
 }[FAMILY]
 
 GOLD = ROOT / _PATHS["gold"]

@@ -35,8 +35,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from nar.transform import silver as S  # noqa: E402
 
 FAMILY = os.environ.get("PLACE_FAMILY", "flat")
-if FAMILY not in ("flat", "banei"):
-    raise ValueError(f"PLACE_FAMILY は flat/banei のいずれか（受領: {FAMILY!r}）")
+if FAMILY not in ("flat", "banei", "flat_pop", "banei_pop"):
+    raise ValueError(f"PLACE_FAMILY は flat/banei/flat_pop/banei_pop のいずれか（受領: {FAMILY!r}）")
 
 _PATHS = {
     "flat": dict(out="artifacts/place", win_oos_pred="artifacts/oos_predictions.parquet",
@@ -44,6 +44,11 @@ _PATHS = {
     "banei": dict(out="artifacts/place_banei",
                  win_oos_pred="artifacts/banei/oos_predictions.parquet",
                  min_dev_bets=30),
+    "flat_pop": dict(out="artifacts/place_pop",
+                    win_oos_pred="artifacts/pop/oos_predictions.parquet", min_dev_bets=300),
+    "banei_pop": dict(out="artifacts/place_banei_pop",
+                     win_oos_pred="artifacts/banei_pop/oos_predictions.parquet",
+                     min_dev_bets=30),
 }[FAMILY]
 
 OUT = ROOT / _PATHS["out"]

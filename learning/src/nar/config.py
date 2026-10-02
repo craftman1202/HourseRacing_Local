@@ -76,6 +76,10 @@ class FeatureConfig:
     # 空なら「除外リスト以外の全部」。ばんえい側はここで 1-4 だけを取る。
     include_baba_codes: list[int] = field(default_factory=list)
     variant: str = "flat"
+    # 人気順（確定時点の単勝人気）を特徴量に足す派生系統（2026-10-02 追加）。
+    # トラックA の「市場と独立」という前提を崩すので、既存の conf / conf_banei では
+    # 必ず False。conf_pop / conf_banei_pop だけが True にし、gold も別ディレクトリに出す。
+    with_popularity: bool = False
 
 
 def _d(v: str) -> date:
@@ -111,6 +115,7 @@ def feature_config(conf_dir: str | None = None) -> FeatureConfig:
         exclude_baba_codes=raw.get("exclude", {}).get("baba_codes", []),
         include_baba_codes=raw.get("include", {}).get("baba_codes", []),
         variant=variant,
+        with_popularity=bool(raw.get("with_popularity", False)),
     )
 
 

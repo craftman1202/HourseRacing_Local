@@ -43,6 +43,15 @@ ASOF_FEATURES = ASOF_FEATURES + DECLARED_FEATURES
 
 MARKET_FEATURES = ("odds_win", "market_implied_logit", "popularity")
 
+# 人気順から作る特徴量（with_popularity の系統だけ）。名前に market を入れてあるので、
+# 通常のトラックA に紛れ込めば FE-10 のブロックリスト検査で落ちる。
+#   market_pop_rank    単勝人気（1 = 1番人気）
+#   market_pop_logrank log(人気)。線形モデル（clogit）向けに人気差の効き方を対数にする
+#   market_pop_pct     人気 / 頭数。頭数の違うレース間で比べられる位置
+# 値は月次ファイルの「人気」= 確定時点の人気。運用時に取れるのは締切前の人気なので、
+# 学習・バックテストはその分だけ楽観的になる。
+POPULARITY_FEATURES = ("market_pop_rank", "market_pop_logrank", "market_pop_pct")
+
 # ばんえいでは情報を持たない列（features/banei.py の docstring に根拠）。
 # 残すと標準化がゼロ分散で壊れるか、全行 NaN の列を契約に載せることになる。
 BANEI_DROPPED = (
@@ -63,10 +72,11 @@ def asof_features(cfg: FeatureConfig | None = None) -> tuple[str, ...]:
     列集合を要求して推論が止まる。列の順序は feature_spec のハッシュに
     乗るので、ここが唯一の定義点であることが重要（SK-03）。
     """
+    pop = POPULARITY_FEATURES if getattr(cfg, "with_popularity", False) else ()
     if cfg is None or getattr(cfg, "variant", "flat") != "banei":
-        return ASOF_FEATURES
+        return ASOF_FEATURES + pop
     kept = tuple(c for c in ASOF_FEATURES if c not in BANEI_DROPPED)
-    return kept + BANEI_FEATURES
+    return kept + BANEI_FEATURES + pop
 
 
 # 全順序。start_ts だけでは同着ならぬ「同時刻の別場」で並びが決まらず、
@@ -411,8 +421,23 @@ def build(
     if empty:
         log.warning("全行 NaN の申告値特徴量があります（列は残します）: %s", empty)
 
+    if cfg.with_popularity:
+        if "popularity" not in entry.columns:
+            raise ValueError("with_popularity の系統ですが entry に popularity 列がありません")
+        pop = entry.set_index(["race_id", "horse_no"])["popularity"]
+        idx = pd.MultiIndex.from_arrays([out["race_id"], out["horse_no"]])
+        rank = pd.to_numeric(pop.reindex(idx), errors="coerce").to_numpy(dtype=float)
+        rank = np.where(rank > 0, rank, np.nan)
+        out["market_pop_rank"] = rank
+        out["market_pop_logrank"] = np.log(rank)
+        out["market_pop_pct"] = rank / out["field_size"].to_numpy(dtype=float)
+
     if cfg.track == "A":
-        assert_no_market_info(out, cfg.market_term_blocklist)
+        # 人気の系統でも、人気由来の3列以外に市場情報が混ざっていないことは検査する
+        assert_no_market_info(
+            out.drop(columns=[c for c in POPULARITY_FEATURES if cfg.with_popularity
+                              and c in out.columns]),
+            cfg.market_term_blocklist)
     return finalize(out)
 
 
@@ -428,7 +453,7 @@ def finalize(df: pd.DataFrame) -> pd.DataFrame:
     # 特徴量の dtype を float64 に固定する。COUNT 由来の列は int64、距離は入力の
     # 型次第で int/float が入れ替わり、学習時と推論時で feature_spec が一致しなく
     # なる（実データで distance と d_*_starts の5列が食い違った）。値は変わらない。
-    for c in ASOF_FEATURES:
+    for c in ASOF_FEATURES + POPULARITY_FEATURES:
         if c in out.columns:
             out[c] = pd.to_numeric(out[c], errors="coerce").astype("float64")
     for c in out.select_dtypes("float").columns:
