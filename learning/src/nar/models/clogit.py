@@ -16,24 +16,32 @@ from .base import RaceBatch, masked_softmax
 
 
 class ConditionalLogit:
-    def __init__(self, l2: float = 1e-4, l1: float = 0.0, fit_intercept: bool = False) -> None:
+    def __init__(self, l2: float = 1e-4, l1: float = 0.0, fit_intercept: bool = False,
+                 offset_last: bool = False) -> None:
         if fit_intercept:
             # レース内 softmax では定数項が完全に打ち消えるので推定不能
             raise ValueError("条件付きロジットに切片は含められません（レース内で相殺されます）")
         self.l2 = l2
         self.l1 = l1
+        # True なら入力の最後の列を係数 1 の固定オフセットとして扱う（2026-10-02、
+        # 人気から作った log p_pop を土台にした残差モデル用）。既定 False は従来どおり。
+        self.offset_last = offset_last
         self.beta: np.ndarray | None = None
         self.feature_names: tuple[str, ...] = ()
         self.result_ = None
 
+    def _split(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray | float]:
+        return (x[..., :-1], x[..., -1]) if self.offset_last else (x, 0.0)
+
     def _nll_and_grad(self, beta: np.ndarray, b: RaceBatch) -> tuple[float, np.ndarray]:
-        scores = np.einsum("rnf,f->rn", b.x, beta)
+        x, off = self._split(b.x)
+        scores = np.einsum("rnf,f->rn", x, beta) + off
         p = masked_softmax(scores, b.mask)
         chosen = b.y * b.mask
         nll = -np.sum(chosen * np.log(np.clip(p, 1e-300, None))) / b.n_races
         # ∂/∂β = Σ_r (E_p[x] - x_chosen)
         resid = (p - chosen) * b.mask
-        grad = np.einsum("rn,rnf->f", resid, b.x) / b.n_races
+        grad = np.einsum("rn,rnf->f", resid, x) / b.n_races
 
         nll += self.l2 * float(beta @ beta)
         grad += 2.0 * self.l2 * beta
@@ -45,8 +53,8 @@ class ConditionalLogit:
         return float(nll), grad
 
     def fit(self, batch: RaceBatch, max_iter: int = 500) -> "ConditionalLogit":
-        n_feat = batch.x.shape[2]
-        self.feature_names = batch.feature_names
+        n_feat = batch.x.shape[2] - int(self.offset_last)
+        self.feature_names = batch.feature_names[:n_feat]
         self.result_ = minimize(
             self._nll_and_grad, np.zeros(n_feat), args=(batch,),
             jac=True, method="L-BFGS-B", options={"maxiter": max_iter},
@@ -58,7 +66,8 @@ class ConditionalLogit:
         """(n_races, max_n)。各行の有効馬にわたる総和が厳密に 1（MD-01）。"""
         if self.beta is None:
             raise RuntimeError("fit() を先に呼んでください")
-        return masked_softmax(np.einsum("rnf,f->rn", batch.x, self.beta), batch.mask)
+        x, off = self._split(batch.x)
+        return masked_softmax(np.einsum("rnf,f->rn", x, self.beta) + off, batch.mask)
 
     def standard_errors(self, batch: RaceBatch) -> np.ndarray:
         """観測情報行列の逆行列から SE を出す（MD-04 の被覆率検証に使う）。"""

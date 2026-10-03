@@ -35,8 +35,11 @@ sys.path.insert(0, str(ROOT / "src"))
 from nar.transform import silver as S  # noqa: E402
 
 FAMILY = os.environ.get("PLACE_FAMILY", "flat")
-if FAMILY not in ("flat", "banei", "flat_pop", "banei_pop"):
-    raise ValueError(f"PLACE_FAMILY は flat/banei/flat_pop/banei_pop のいずれか（受領: {FAMILY!r}）")
+# *_dev_{resid,reg,pop}: 単勝確率に「人気との乖離」モデル（scripts/deviation_models.py）の出力、
+# 複勝確率に人気派生系統の複勝モデルを使う組み合わせ。dev_pop は人気だけの単勝確率（対照）。
+_DEV = {f"{fam}_dev_{t}": (fam, t) for fam in ("flat", "banei") for t in ("resid", "reg", "pop")}
+if FAMILY not in ("flat", "banei", "flat_pop", "banei_pop", *_DEV):
+    raise ValueError(f"PLACE_FAMILY が未知です（受領: {FAMILY!r}）")
 
 _PATHS = {
     "flat": dict(out="artifacts/place", win_oos_pred="artifacts/oos_predictions.parquet",
@@ -49,10 +52,17 @@ _PATHS = {
     "banei_pop": dict(out="artifacts/place_banei_pop",
                      win_oos_pred="artifacts/banei_pop/oos_predictions.parquet",
                      min_dev_bets=30),
+    **{k: dict(out=f"artifacts/{k}",
+               win_oos_pred=f"artifacts/dev_{fam}_pop/oos_win_{t}.parquet",
+               place_pred=f"artifacts/place_{'pop' if fam == 'flat' else 'banei_pop'}"
+                          "/oos_place_predictions.parquet",
+               min_dev_bets=300 if fam == "flat" else 30)
+       for k, (fam, t) in _DEV.items()},
 }[FAMILY]
 
 OUT = ROOT / _PATHS["out"]
 WIN_OOS_PRED = ROOT / _PATHS["win_oos_pred"]
+PLACE_PRED = ROOT / _PATHS.get("place_pred", f"{_PATHS['out']}/oos_place_predictions.parquet")
 DEV_END = pd.Timestamp("2026-05-31")
 T_GRID = (1.0, 1.05, 1.1, 1.2, 1.3, 1.5, 2.0)
 X_GRID = (0.0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
@@ -93,7 +103,7 @@ def realized(bet_type: str) -> pd.DataFrame:
 def load() -> pd.DataFrame:
     win = pd.read_parquet(WIN_OOS_PRED,
                           columns=["race_id", "horse_no", "race_date", "is_win", "ensemble"])
-    plc = pd.read_parquet(OUT / "oos_place_predictions.parquet",
+    plc = pd.read_parquet(PLACE_PRED,
                           columns=["race_id", "horse_no", "n_runners", "k_place", "is_place",
                                    "pp_ensemble", "pp_from_win"])
     odds = pd.read_parquet(ROOT / "data_real/silver/odds.parquet",
@@ -196,6 +206,7 @@ def bh(p: np.ndarray) -> np.ndarray:
 
 
 def main() -> int:
+    OUT.mkdir(parents=True, exist_ok=True)
     df = load()
     dev_placers = df[(df["period"] == "dev") & (df["ret_place"] > 0) & df["pl_min"].notna()
                      & (df["pl_max"] > df["pl_min"])]

@@ -58,6 +58,13 @@ class TabMConfig:
     batch_races: int = 256
     patience: int = 10
     seed: int = 0
+    # 2026-10-02 追加（既定値では従来と完全に同じ挙動）。
+    # offset_last: 入力の最後の列を「固定オフセット」としてスコアに足す（ネットワークには
+    #   入れない・標準化もしない）。人気から作った事前確率 log p_pop を土台にして、そこからの
+    #   乖離だけを学習させる残差モデル用。
+    # task="regression": レース内 softmax の代わりに y への二乗誤差で学習する（y は連続値）。
+    offset_last: bool = False
+    task: str = "listwise"
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     history: list[dict] = field(default_factory=list)
 
@@ -132,6 +139,8 @@ class TabM:
             self._mu = x[valid].mean(axis=0)
             sd = x[valid].std(axis=0)
             sd[sd < 1e-8] = 1.0
+            if self.cfg.offset_last:
+                self._mu[-1], sd[-1] = 0.0, 1.0      # オフセットは生の値のまま足す
             self._sd = sd
         if self._mu is None or self._sd is None:
             raise RuntimeError("標準化の統計量が未設定です。fit() を先に呼んでください")
@@ -149,15 +158,28 @@ class TabM:
 
     def _forward(self, x: torch.Tensor) -> torch.Tensor:
         n_races, max_n, d = x.shape
+        if self.cfg.offset_last:
+            offset, x = x[..., -1], x[..., :-1]
+            d -= 1
         scores = self._fitted()(x.reshape(-1, d))        # (k, n_races*max_n)
-        return scores.reshape(self.cfg.k, n_races, max_n)
+        scores = scores.reshape(self.cfg.k, n_races, max_n)
+        return scores + offset if self.cfg.offset_last else scores
+
+    def _loss(self, scores: torch.Tensor, y: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        if self.cfg.task == "regression":
+            m = mask.to(scores.dtype)
+            return (((scores - y) ** 2) * m).sum() / (m.sum() * scores.shape[0])
+        log_p = masked_log_softmax(scores, mask)
+        return plackett_luce_first_term(log_p, y.expand(self.cfg.k, -1, -1), mask)
 
     # ---------------------------------------------------------------------- API
     def fit(self, train: RaceBatch, valid: RaceBatch | None = None) -> "TabM":
         cfg = self.cfg
         torch.manual_seed(cfg.seed)
         self.feature_names = train.feature_names
-        self.net = _TabMNet(train.x.shape[2], cfg).to(cfg.device)
+        if cfg.task not in ("listwise", "regression"):
+            raise ValueError(f"task は listwise / regression（受領: {cfg.task!r}）")
+        self.net = _TabMNet(train.x.shape[2] - int(cfg.offset_last), cfg).to(cfg.device)
 
         xt, yt, mt = self._tensors(train, fit_scaler=True)
         xv = yv = mv = None
@@ -176,10 +198,9 @@ class TabM:
             total = 0.0
             for i in range(0, train.n_races, cfg.batch_races):
                 idx = perm[i:i + cfg.batch_races].to(cfg.device)
-                log_p = masked_log_softmax(self._forward(xt[idx]), mt[idx])
                 # member ごとに損失を取って平均する。予測を先に平均すると
                 # member 間の多様性が損失に効かず、アンサンブルの意味が消える。
-                loss = plackett_luce_first_term(log_p, yt[idx].expand(cfg.k, -1, -1), mt[idx])
+                loss = self._loss(self._forward(xt[idx]), yt[idx], mt[idx])
                 opt.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.net.parameters(), 5.0)
@@ -207,6 +228,10 @@ class TabM:
     @torch.no_grad()
     def _eval_nll(self, x, y, mask) -> float:
         self._fitted().eval()
+        if self.cfg.task == "regression":     # 回帰は member 平均の二乗誤差で早期終了を判定
+            m = mask.to(x.dtype)
+            pred = self._forward(x).mean(dim=0)
+            return float((((pred - y) ** 2) * m).sum() / m.sum())
         log_p = masked_log_softmax(self._forward(x), mask)
         # 評価は member 平均の予測に対して行う（推論時に返すものと一致させる）
         p = log_p.exp().mean(dim=0).clamp_min(EPS)
@@ -218,6 +243,15 @@ class TabM:
         self._fitted().eval()
         x, _, mask = self._tensors(batch)
         return masked_log_softmax(self._forward(x), mask).exp().cpu().numpy()
+
+    @torch.no_grad()
+    def predict_scores(self, batch: RaceBatch) -> np.ndarray:
+        """(n_races, max_n)。member 平均の生スコア（回帰の予測値、残差モデルの対数強さ）。"""
+        self._fitted().eval()
+        x, _, mask = self._tensors(batch)
+        s = self._forward(x).mean(dim=0).cpu().numpy()
+        s[~batch.mask] = 0.0
+        return s
 
     def predict_proba(self, batch: RaceBatch) -> np.ndarray:
         """member 平均。レース内総和は member ごとに 1 なので平均後も 1。"""

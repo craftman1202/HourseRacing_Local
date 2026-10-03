@@ -9,6 +9,7 @@ Top-1 精度や NDCG で最適化しても較正は改善しない。
 
 from __future__ import annotations
 
+import gc
 import logging
 from dataclasses import dataclass, field
 from typing import Callable
@@ -79,6 +80,23 @@ def suggest_tabm(t: optuna.Trial) -> dict:
     }
 
 
+def suggest_tabm_small(t: optuna.Trial) -> dict:
+    """メモリを抑えた TabM の探索空間（2026-10-03）。k=4 固定、hidden∈{128,256}。
+
+    人気派生系統の HPO（中予算）が fold 4（学習 ~3.4M 行）で OOM（python RSS 45GB、
+    物理 47GB）により落ちたため。k は member 数で、活性化と勾配のメモリにそのまま
+    比例する。`--tabm-hpo-space small` のときだけ使う（既定は suggest_tabm のまま）。
+    """
+    return {
+        "k": 4,
+        "hidden": t.suggest_categorical("hidden", [128, 256]),
+        "n_layers": t.suggest_int("n_layers", 2, 3),
+        "dropout": t.suggest_float("dropout", 0.0, 0.4),
+        "lr": t.suggest_float("lr", 3e-4, 5e-3, log=True),
+        "weight_decay": t.suggest_float("weight_decay", 1e-6, 1e-2, log=True),
+    }
+
+
 def suggest_clogit(t: optuna.Trial) -> dict:
     return {
         "l2": t.suggest_float("l2", 1e-8, 1.0, log=True),
@@ -88,6 +106,7 @@ def suggest_clogit(t: optuna.Trial) -> dict:
 
 SUGGESTERS: dict[str, Callable[[optuna.Trial], dict]] = {
     "lgbm": suggest_lgbm, "tabm": suggest_tabm, "clogit": suggest_clogit,
+    "tabm_small": suggest_tabm_small,
 }
 
 
@@ -102,6 +121,7 @@ def run(
     n_inner: int = 3,
     seed: int = 0,
     prepare_fn: Callable[[pd.DataFrame, list[str]], pd.DataFrame] | None = None,
+    suggester: str | None = None,
 ) -> HPOResult:
     """内側 3-fold で params を探索する。
 
@@ -132,8 +152,10 @@ def run(
             f"{model}: 内側 fold に十分なデータがありません。"
             "外側 train 期間か embargo の設定を見直してください。")
 
+    suggest = SUGGESTERS[suggester or model]
+
     def objective(trial: optuna.Trial) -> float:
-        params = SUGGESTERS[model](trial)
+        params = suggest(trial)
         scores = []
         for i, (tr, va) in enumerate(splits):
             p = np.asarray(train_predict(params, tr, va, feature_cols))
@@ -142,6 +164,9 @@ def run(
                     f"{model}: 予測 {len(p)} 行が valid {len(va)} 行と一致しません。"
                     "train_predict は valid の行順どおりに返す必要があります。")
             scores.append(race_nll(p, va["is_win"].to_numpy(), va["race_id"].to_numpy()))
+            del p
+            # 試行ごとに作られるモデル・テンソルを確実に手放す（2026-10-03 の OOM 対策）
+            gc.collect()
             trial.report(float(np.mean(scores)), i)
             if trial.should_prune():
                 raise optuna.TrialPruned()

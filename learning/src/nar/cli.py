@@ -463,6 +463,8 @@ def cmd_learn(args: argparse.Namespace) -> int:
         tabm_width={"k": args.tabm_k, "hidden": args.tabm_hidden,
                     "n_layers": args.tabm_layers, "batch_races": args.tabm_batch},
         seed=args.seed,
+        tabm_hpo_space=args.tabm_hpo_space,
+        checkpoint_dir=str(artifacts / "fold_checkpoints") if args.checkpoint_folds else None,
     )
 
     tracker = RunTracker("nar-walkforward", artifacts)
@@ -947,6 +949,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--tabm-layers", type=int, default=3)
     s.add_argument("--tabm-batch", type=int, default=256)
     s.add_argument("--seed", type=int, default=0)
+    s.add_argument("--tabm-hpo-space", default="default", choices=["default", "small"],
+                   help="small = TabM の HPO を k=4 固定に絞る（メモリ節約）")
+    s.add_argument("--checkpoint-folds", action="store_true",
+                   help="fold ごとの結果を artifacts/fold_checkpoints に保存し、再実行時に再利用する")
     s.add_argument("--trackb", action="store_true", help="トラックB（残差モデル）も評価する")
     s.add_argument("--oos", action="store_true", help="続けて OOS 最終評価を行う（開封）")
     s.add_argument("--reason", default=None)

@@ -8,6 +8,7 @@ OOS はここでは触らない。`evaluate_oos()` を明示的に呼んだと�
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -50,6 +51,12 @@ class RunConfig:
     # 幅を実行ごとに明示して、レポートに残せるようにする。
     tabm_width: dict = field(default_factory=dict)
     seed: int = 0
+    # 2026-10-03 追加（既定値では従来どおり）。
+    # tabm_hpo_space="small": TabM の HPO 探索空間を k=4 固定に絞る（hpo.suggest_tabm_small）
+    # checkpoint_dir: fold ごとの結果をここに保存し、再実行時は同じ設定の fold を読み直す。
+    #   長い HPO が途中で落ちても、終わった fold をやり直さずに済む。
+    tabm_hpo_space: str = "default"
+    checkpoint_dir: str | None = None
 
 
 @dataclass
@@ -263,9 +270,10 @@ def _tune(name, fold, feat, cols, cfg: RunConfig, ccfg: CVConfig, sink: dict) ->
 
     # prepare は hpo.run 側で1度だけ適用する。ここで二重に掛けると、
     # 目的関数が見る valid と予測の行順がずれる。
+    suggester = "tabm_small" if name == "tabm" and cfg.tabm_hpo_space == "small" else None
     res = hpo_mod.run(name, fold, feat, cols, fn, n_trials=n,
                       embargo_days=ccfg.embargo_days, n_inner=ccfg.inner_n_folds,
-                      seed=cfg.seed, prepare_fn=prepare)
+                      seed=cfg.seed, prepare_fn=prepare, suggester=suggester)
     sink[name] = {"best_params": res.best_params, "best_value": res.best_value,
                   "n_trials": res.n_trials}
     return res.best_params
@@ -376,8 +384,60 @@ def run_walkforward(
     for f in usable:
         log.info("=== fold %d: train %s〜%s / valid %s〜%s ===",
                  f.index, f.train_start, f.train_end, f.valid_start, f.valid_end)
-        out.append(run_fold(f, feat, cols, cfg, ccfg))
+        cached = _load_checkpoint(cfg, f, cols, feat)
+        if cached is not None:
+            log.info("fold %d: チェックポイントから復元しました", f.index)
+            out.append(cached)
+            continue
+        res = run_fold(f, feat, cols, cfg, ccfg)
+        _save_checkpoint(cfg, f, cols, feat, res)
+        out.append(res)
     return out
+
+
+def _checkpoint_key(cfg: RunConfig, fold: Fold, cols: list[str], feat: pd.DataFrame) -> str:
+    """設定・特徴量・データのどれかが変わればキーも変わる（古い fold を黙って使わない）。"""
+    import hashlib
+
+    payload = json.dumps({
+        "cfg": {k: v for k, v in vars(cfg).items() if k != "checkpoint_dir"},
+        "fold": [fold.index, str(fold.train_start), str(fold.train_end),
+                 str(fold.valid_start), str(fold.valid_end)],
+        "cols": list(cols), "n_rows": int(len(feat)),
+        "last_date": str(pd.to_datetime(feat["race_date"]).max().date()),
+    }, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _checkpoint_path(cfg: RunConfig, fold: Fold) -> Path | None:
+    return Path(cfg.checkpoint_dir) / f"fold_{fold.index}.pkl" if cfg.checkpoint_dir else None
+
+
+def _load_checkpoint(cfg, fold, cols, feat) -> "FoldOutput | None":
+    import pickle
+
+    path = _checkpoint_path(cfg, fold)
+    if path is None or not path.exists():
+        return None
+    with path.open("rb") as fh:
+        saved = pickle.load(fh)
+    if saved.get("key") != _checkpoint_key(cfg, fold, cols, feat):
+        log.warning("fold %d: チェックポイントの設定が違うので使いません（%s）", fold.index, path)
+        return None
+    return saved["out"]
+
+
+def _save_checkpoint(cfg, fold, cols, feat, res: "FoldOutput") -> None:
+    import pickle
+
+    path = _checkpoint_path(cfg, fold)
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with tmp.open("wb") as fh:
+        pickle.dump({"key": _checkpoint_key(cfg, fold, cols, feat), "out": res}, fh)
+    tmp.replace(path)
 
 
 def _has_data(fold: Fold, races: pd.DataFrame) -> bool:
