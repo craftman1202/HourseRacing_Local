@@ -48,7 +48,12 @@ def load_release(final_dir: str | Path) -> dict:
     import sys
 
     root = Path(final_dir).resolve()
-    ops_src = root.parents[2] / "operation" / "src"
+    # 配布物の置き場所の深さは一定ではない（artifacts/final_x と artifacts/x/final_eval の
+    # 両方がある）。固定の parents[2] だと深い方で narops を見つけられず落ちる
+    # （2026-10-04、artifacts/pop_hpo/final_eval で ModuleNotFoundError）。上に辿って探す。
+    ops_src = next((d / "operation" / "src" for d in root.parents
+                    if (d / "operation" / "src" / "narops").is_dir()),
+                   root.parents[2] / "operation" / "src")
     if str(ops_src) not in sys.path:
         sys.path.insert(0, str(ops_src))
     from narops.runtime import Standardizer, LgbmScorer, LinearScorer, OnnxScorer

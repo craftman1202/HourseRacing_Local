@@ -66,7 +66,8 @@ log = logging.getLogger("place_model")
 FAMILY = os.environ.get("PLACE_FAMILY", "flat")
 # 系統 → 必要な NAR_CONF_DIR（None = 既定の conf）。*_pop は人気順を足した派生系統。
 _CONF_FOR = {"flat": None, "banei": "conf_banei",
-             "flat_pop": "conf_pop", "banei_pop": "conf_banei_pop"}
+             "flat_pop": "conf_pop", "banei_pop": "conf_banei_pop",
+             "flat_pop_hpo": "conf_pop", "banei_pop_hpo": "conf_banei_pop"}
 if FAMILY not in _CONF_FOR:
     raise ValueError(f"PLACE_FAMILY は {tuple(_CONF_FOR)} のいずれか（受領: {FAMILY!r}）")
 if os.environ.get("NAR_CONF_DIR") != _CONF_FOR[FAMILY] and _CONF_FOR[FAMILY] is not None:
@@ -96,6 +97,18 @@ _PATHS = {
                       oos_log="artifacts/banei/oos_access.log",
                       win_oos_pred="artifacts/banei_pop/oos_predictions.parquet",
                       default_win_release=None),
+    # HPO（中）付きの人気派生系統。複勝モデルにも単勝側の HPO 値（最終 fold の最良）を使う
+    "flat_pop_hpo": dict(gold="data_real/gold/features_noodds_pop/features.parquet",
+                         win_eval="artifacts/pop_hpo/final_eval", out="artifacts/place_pop_hpo",
+                         oos_log="artifacts/oos_access.log",
+                         win_oos_pred="artifacts/pop_hpo/oos_predictions.parquet",
+                         default_win_release=None, hpo="artifacts/pop_hpo/hpo_params.json"),
+    "banei_pop_hpo": dict(gold="data_real/gold/features_noodds_banei_pop/features.parquet",
+                          win_eval="artifacts/banei_pop_hpo/final_eval",
+                          out="artifacts/place_banei_pop_hpo",
+                          oos_log="artifacts/banei/oos_access.log",
+                          win_oos_pred="artifacts/banei_pop_hpo/oos_predictions.parquet",
+                          default_win_release=None, hpo="artifacts/banei_pop_hpo/hpo_params.json"),
 }[FAMILY]
 
 GOLD = ROOT / _PATHS["gold"]
@@ -112,7 +125,21 @@ EPS = 1e-12
 # 当時のバグ（--tabm-batch が効かず既定値 256 で学習）の影響下で作られているので同一値を使う。
 # HPO 値は使っていない（当時の fit-final は既定値で学習）。
 CLOGIT_L2 = 1e-3
+CLOGIT_L1 = 0.0
 TABM_CFG = dict(k=4, hidden=128, n_layers=2, epochs=3, batch_races=256, seed=0)
+LGBM_EXTRA: dict = {}
+LGBM_ROUNDS = None
+# *_hpo 系統: 単勝側の nested HPO の結果（extract_hpo_params.py の出力）を3モデルに当てる。
+# 単勝の配布物（fit-final）と同じく TabM の batch_races は 4096。
+if "hpo" in _PATHS:
+    _hpo = json.loads((ROOT / _PATHS["hpo"]).read_text(encoding="utf-8"))
+    CLOGIT_L2 = float(_hpo.get("clogit", {}).get("l2", CLOGIT_L2))
+    CLOGIT_L1 = float(_hpo.get("clogit", {}).get("l1", 0.0))
+    LGBM_EXTRA = {k: v for k, v in _hpo.get("lgbm", {}).items() if not k.startswith("_")}
+    LGBM_ROUNDS = _hpo.get("lgbm", {}).get("_num_boost_round")
+    TABM_CFG = {**TABM_CFG, "batch_races": 4096,
+                **{k: v for k, v in _hpo.get("tabm", {}).items()
+                   if k in TabMConfig.__annotations__}}
 
 
 # --------------------------------------------------------------------------- ラベル
@@ -191,7 +218,8 @@ def train_models(fit_df: pd.DataFrame, cal_df: pd.DataFrame, names: list[str], o
     timings = {}
 
     t0 = time.time()
-    cl = ConditionalLogit(l2=CLOGIT_L2).fit(to_batch(fit_df, names, label_col="is_place"))
+    cl = ConditionalLogit(l2=CLOGIT_L2, l1=CLOGIT_L1).fit(
+        to_batch(fit_df, names, label_col="is_place"))
     (out / f"{prefix}clogit_beta.json").write_text(
         json.dumps({"beta": cl.coefficients()}, indent=2))
     cal_logs["clogit"] = cal_df[names].to_numpy(dtype=float) @ cl.beta
@@ -200,10 +228,11 @@ def train_models(fit_df: pd.DataFrame, cal_df: pd.DataFrame, names: list[str], o
 
     t0 = time.time()
     ranker = LgbmRanker()           # 単勝と同じ既定パラメータ。ラベル段階だけ 2 値に
-    lgbm_params = {**ranker.params, "label_gain": [0.0, 1.0]}
+    lgbm_params = {**ranker.params, **LGBM_EXTRA, "label_gain": [0.0, 1.0]}
+    rounds = int(LGBM_ROUNDS or ranker.num_boost_round)
     ds = lgb.Dataset(fit_df[names], label=fit_df["is_place"].to_numpy(),
                      group=group_sizes(fit_df), feature_name=names, free_raw_data=False)
-    booster = lgb.train(lgbm_params, ds, num_boost_round=ranker.num_boost_round)
+    booster = lgb.train(lgbm_params, ds, num_boost_round=rounds)
     booster.save_model(str(out / f"{prefix}lgbm_rank.txt"))
     cal_logs["lgbm"] = booster.predict(cal_df[names])
     timings["lgbm"] = time.time() - t0
@@ -239,8 +268,8 @@ def train_models(fit_df: pd.DataFrame, cal_df: pd.DataFrame, names: list[str], o
             b.flat_predictions(tm.predict_proba(b), len(cal_df)), EPS, 1))
     timings["tabm"] = time.time() - t0
     log.info("tabm 完了 %.0fs", timings["tabm"])
-    params = {"clogit_l2": CLOGIT_L2, "lgbm": lgbm_params,
-              "lgbm_rounds": ranker.num_boost_round, "tabm": TABM_CFG}
+    params = {"clogit_l2": CLOGIT_L2, "clogit_l1": CLOGIT_L1, "lgbm": lgbm_params,
+              "lgbm_rounds": rounds, "tabm": TABM_CFG}
     return cal_logs, params, timings
 
 
