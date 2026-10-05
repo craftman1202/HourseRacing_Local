@@ -1,0 +1,20 @@
+{
+  "coef": {
+    "market_pop_pct": -1.2227150134212637,
+    "market_pop_rank": -0.8094905558556182,
+    "market_pop_logrank": 0.5927775662614331,
+    "h_si_last3": -0.18894665396215368,
+    "h_winrate_prior": 0.06014828509132136,
+    "h_top3rate_prior": -0.1367571476380781,
+    "d_track_starts": -0.05844611974341476,
+    "d_dist_starts": 0.02566242626083591,
+    "h_days_since_prev": 0.13273633722504535,
+    "d_all_winrate": 0.04889125631807615,
+    "d_pair_winrate": -0.051683289189974044,
+    "d_best_speed_good": -0.028720739672445185,
+    "d_turn_starts": 0.08110210690456741,
+    "d_best_speed": -0.018766464865726903,
+    "is_first_start": 0.031471717726737056
+  },
+  "intercept": 0.017007695152021485
+}

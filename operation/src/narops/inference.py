@@ -164,6 +164,8 @@ def run_inference(
     place: Any = None,
     place_odds: pd.DataFrame | None = None,
     strategy: Any = None,
+    deviation: Any = None,
+    popularity: np.ndarray | None = None,
 ) -> InferenceResult:
     """1レース分の推論。
 
@@ -177,6 +179,19 @@ def run_inference(
 
     race_ids = np.full(len(features), race_id, dtype=object)
     notes: list[str] = []
+
+    if deviation is not None:
+        # 人気との乖離（回帰）モデル。単勝確率は人気の事前確率と回帰予測から作る
+        # （nar.eval.deviation、学習側と同一実装）。合成・温度は内部で済んでいる。
+        pop = (np.asarray(popularity, dtype=float) if popularity is not None
+               else np.full(len(features), np.nan))
+        if np.isnan(pop).all():
+            notes.append("人気（締切前オッズ）が無いため、人気の事前確率は全馬同じ扱い")
+        p = deviation.predict(features, pop, race_ids)
+        per_model = {"deviation": p}
+        return _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds,
+                       pool_model, baba_code, class_level, day_budget_remaining, takeout,
+                       place, place_odds, strategy)
 
     per_model: dict[str, np.ndarray] = {}
     for name, model in models.items():
@@ -206,6 +221,16 @@ def run_inference(
         if temperature and temperature > 0:
             p = race_softmax(np.log(np.clip(p, 1e-12, 1.0)) / temperature, race_ids)
 
+    return _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds,
+                   pool_model, baba_code, class_level, day_budget_remaining, takeout,
+                   place, place_odds, strategy)
+
+
+def _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds, pool_model,
+            baba_code, class_level, day_budget_remaining, takeout, place, place_odds,
+            strategy) -> InferenceResult:
+    """単勝確率が決まったあとの共通部分（総和検証・複勝確率・期待値・賭け金）。"""
+    race_ids = np.full(len(features), race_id, dtype=object)
     assert_normalized(p, race_ids)              # IN-01
 
     # 複勝（上位3着以内）確率。単勝モデルしか無いので Harville 式で近似する

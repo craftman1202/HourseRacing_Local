@@ -577,3 +577,28 @@ def test_discord_notification_includes_track_name_class_name_and_horse_names(
         f"見出しに競馬場名がありません: {title!r}")
     assert any(f"テストウマ{i}" in desc for i in range(1, 9)), (
         f"本文に馬名がありません: {desc!r}")
+
+
+# ------------------------------------------------- 人気との乖離（回帰）モデル（2026-10-05）
+def test_infer_feeds_odds_derived_popularity_into_the_deviation_model(svc):
+    """締切前オッズ → 人気 → 出馬表 → 特徴量 → 乖離モデル、の経路を実際の /infer で通す。"""
+    from narops.runtime import DeviationModel
+    from narops.shared import feature_config_for
+
+    table = {f"{r}_8": v for r, v in zip(range(1, 9),
+                                         (0.40, 0.20, 0.12, 0.08, 0.06, 0.05, 0.05, 0.04))}
+    svc.feature_config = feature_config_for("flat_pop")
+    svc.deviation = DeviationModel(
+        features=["market_pop_rank"], booster=None, ridge_coef=np.array([0.0]),
+        ridge_intercept=0.0,
+        meta={"pop_table": table, "reg_weights": {"ridge": 1.0},
+              "reg_calibration": {"ridge": {"gamma": 1.0, "temperature": 1.0}}})
+    plan_day_endpoint(svc, DAY)
+    out = infer_endpoint(svc, RACE_ID)
+    assert out.status == "ok", out.reason
+
+    # odds [3.2, 5.1, 8.0, 12.5, 4.4, 22.0, 60.0, 15.0] → 人気 [1, 3, 4, 5, 2, 7, 8, 6]
+    ranks = [1, 3, 4, 5, 2, 7, 8, 6]
+    expect = np.array([table[f"{r}_8"] for r in ranks])
+    got = out.predictions.sort_values("horse_no")["p_win"].to_numpy()
+    assert np.allclose(got, expect / expect.sum()), "人気が出馬表・特徴量・モデルへ届いていません"

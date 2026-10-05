@@ -308,10 +308,19 @@ def cmd_fit_prod(args) -> int:
     評価は `fit`（評価用、OOS で1回測定済み）で済んでいる。単勝の出荷用モデルと同じく、
     評価後に全データで学習し直したもので、これ自体の OOS 数値は無い。
     """
-    rel = ROOT.parent / "operation/data/nar-model/releases" / args.win_release
-    manifest = json.loads((rel / "manifest.json").read_text(encoding="utf-8"))
-    names = list(manifest["feature_spec"]["names"])
-    stats = json.loads((rel / "standardizer.json").read_text(encoding="utf-8"))
+    if args.features_from:
+        # 出荷用 fit-final の出力から取る（人気派生系統など、まだリリースが無い系統用）
+        src = ROOT / args.features_from
+        names = json.loads((src / "feature_names.json").read_text(encoding="utf-8"))
+        stats = json.loads((src / "standardizer.json").read_text(encoding="utf-8"))
+        fm = json.loads((src / "final_meta.json").read_text(encoding="utf-8"))
+        manifest = {"dataset_version": fm["gold_content_hash"], "train_period": fm["train_period"]}
+        args.win_release = args.features_from
+    else:
+        rel = ROOT.parent / "operation/data/nar-model/releases" / args.win_release
+        manifest = json.loads((rel / "manifest.json").read_text(encoding="utf-8"))
+        names = list(manifest["feature_spec"]["names"])
+        stats = json.loads((rel / "standardizer.json").read_text(encoding="utf-8"))
     cols = ["race_id", "horse_no", "race_date", "finish_pos", "is_win", *names]
     feat = pd.read_parquet(GOLD, columns=cols)
     gold_hash = (GOLD.parent / "content_hash.txt").read_text().strip()
@@ -492,6 +501,8 @@ def main() -> int:
     sub.add_parser("fit").set_defaults(func=cmd_fit)
     s = sub.add_parser("fit-prod")
     s.add_argument("--win-release", default=DEFAULT_WIN_RELEASE)
+    s.add_argument("--features-from", default=None,
+                   help="出荷用 fit-final の出力ディレクトリ（指定時は --win-release を使わない）")
     s.set_defaults(func=cmd_fit_prod)
     s = sub.add_parser("score-oos")
     s.add_argument("--unlock-oos", action="store_true")

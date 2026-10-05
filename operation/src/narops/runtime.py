@@ -166,6 +166,71 @@ class PlaceModels:
     release_meta: dict
 
 
+def needs_popularity(feature_names) -> bool:
+    """リリースが人気順の特徴量（market_pop_*）を使うか。使うなら推論時に人気が要る。"""
+    return any(str(n).startswith("market_pop_") for n in feature_names)
+
+
+@dataclass
+class DeviationModel:
+    """人気との乖離（着順 − 人気）を予測する回帰モデル（2026-10-05）。
+
+    単勝確率 = softmax((log p_pop − γ·予測)/T) を重み付き合成（nar.eval.deviation）。
+    p_pop は人気 × 頭数の勝率表。リリースに dev_meta.json があるときだけ持つ。
+    これがあるリリースでは、単勝確率は clogit/lgbm/tabm の合成ではなくこちらで出す。
+    """
+
+    features: list[str]
+    booster: object | None
+    ridge_coef: np.ndarray | None
+    ridge_intercept: float
+    meta: dict
+
+    def predict(self, scored: pd.DataFrame, pop_rank: np.ndarray, race_ids: np.ndarray
+                ) -> np.ndarray:
+        from .shared import log_p_pop, reg_probability
+
+        n = np.full(len(scored), len(scored)) if len(set(race_ids)) == 1 else \
+            pd.Series(race_ids).map(pd.Series(race_ids).value_counts()).to_numpy()
+        offset = log_p_pop(pop_rank, n, race_ids, self.meta["pop_table"])
+        preds = {}
+        if self.booster is not None:
+            preds["lgbm"] = np.asarray(self.booster.predict(_frame(scored, self.features)))
+        if self.ridge_coef is not None:
+            preds["ridge"] = _matrix(scored, self.features) @ self.ridge_coef + self.ridge_intercept
+        return reg_probability(offset, preds, self.meta["reg_calibration"],
+                               self.meta["reg_weights"], race_ids)
+
+
+def load_deviation_model(release) -> DeviationModel | None:
+    path = Path(release.path)
+    meta_file = path / "dev_meta.json"
+    if not meta_file.exists():
+        return None
+    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    spec = json.loads((path / "feature_spec.json").read_text(encoding="utf-8"))
+    features = list(spec["names"])
+    if list(meta["features"]) != features:
+        raise ArtifactIntegrityError(
+            f"{release.release_id}: 乖離モデルの特徴量が feature_spec と一致しません")
+    booster = None
+    if (path / "dev_reg_lgbm.txt").exists():
+        import lightgbm as lgb
+
+        booster = lgb.Booster(model_file=str(path / "dev_reg_lgbm.txt"))
+    coef, intercept = None, 0.0
+    if (path / "dev_reg_ridge.json").exists():
+        r = json.loads((path / "dev_reg_ridge.json").read_text(encoding="utf-8"))
+        coef = np.asarray([r["coef"][f] for f in features], dtype=float)
+        intercept = float(r["intercept"])
+    have = {"lgbm": booster is not None, "ridge": coef is not None}
+    missing = [m for m, w in meta["reg_weights"].items() if w > 0 and not have.get(m, False)]
+    if missing:
+        raise ArtifactIntegrityError(
+            f"{release.release_id}: 乖離モデルの重みが付いているのに実体が無い: {missing}")
+    return DeviationModel(features, booster, coef, intercept, meta)
+
+
 def load_place_models(release) -> PlaceModels | None:
     path = Path(release.path)
     meta_file = path / "place_meta.json"

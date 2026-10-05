@@ -130,10 +130,16 @@ def _attach_model(svc: Any, cfg: OpsConfig) -> None:
         return
     release = svc.registry.load(rid, verify=True)   # ハッシュ不一致なら例外
     svc.manifest = release.manifest
-    from .runtime import load_models, load_place_models
+    from .runtime import load_deviation_model, load_models, load_place_models, needs_popularity
 
     svc.models, svc.standardizer = load_models(release)
     svc.place = load_place_models(release)
+    svc.deviation = load_deviation_model(release)
+    # 人気順を特徴量に持つリリースは、人気を出馬表に足して組む設定（conf_pop）で特徴量を作る
+    if release.manifest.feature_spec and needs_popularity(release.manifest.feature_spec.names):
+        svc.feature_config = feature_config_for("flat_pop")
+        log.info("人気順の特徴量を使うリリースです（conf_pop、乖離モデル %s）",
+                 "あり" if svc.deviation is not None else "なし")
     log.info("モデル %s を読み込みました（%d モデル、複勝モデル %s）", rid, len(svc.models),
              "あり" if svc.place is not None else "なし")
     _attach_banei_model(svc, root, bucket)

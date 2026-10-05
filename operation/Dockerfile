@@ -40,6 +40,7 @@ COPY learning/src /app/learning/src
 COPY learning/conf /app/learning/conf
 # ばんえい用の特徴量設定。無いとばんえいの推論だけが起動時に落ちる
 COPY learning/conf_banei /app/learning/conf_banei
+COPY learning/conf_pop /app/learning/conf_pop
 COPY operation/src /app/operation/src
 COPY operation/conf /app/operation/conf
 # 一度きりの運用スクリプト（例: scripts/finalize_history_backlog.py）を

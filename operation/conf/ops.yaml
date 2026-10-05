@@ -81,6 +81,11 @@ skew:
     - j_wins_today
     - t_wins_today
     - track_speed_bias
+    # 人気順（2026-10-05、乖離回帰モデル）。推論時は締切10分前のオッズから作り、翌日の
+    # 再計算は確定人気を使うので、時点の違いで必ずずれる。ずれ自体は想定どおり。
+    - market_pop_rank
+    - market_pop_logrank
+    - market_pop_pct
 
 monitoring:
   model_stale_days: 90           # current の学習日がこれ以上前なら鮮度アラート

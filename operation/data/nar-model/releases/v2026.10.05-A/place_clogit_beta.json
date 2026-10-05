@@ -1,0 +1,19 @@
+{
+  "beta": {
+    "market_pop_pct": -0.22181734367167377,
+    "market_pop_rank": -0.21904709146865436,
+    "market_pop_logrank": -0.2246631810174605,
+    "h_si_last3": 0.08244211486717636,
+    "h_winrate_prior": 0.06029351131687189,
+    "h_top3rate_prior": 0.10548953409296441,
+    "d_track_starts": -0.03729756868011829,
+    "d_dist_starts": -0.03161981159539387,
+    "h_days_since_prev": -0.008661244560436016,
+    "d_all_winrate": 0.05537287099700341,
+    "d_pair_winrate": 0.0631268857004674,
+    "d_best_speed_good": 0.026053638921617755,
+    "d_turn_starts": -0.04541076399721783,
+    "d_best_speed": 0.028127617870664187,
+    "is_first_start": 0.015537273198411026
+  }
+}

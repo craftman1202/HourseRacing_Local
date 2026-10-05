@@ -99,9 +99,11 @@ def fit_pop_table(df: pd.DataFrame) -> dict:
 
 
 def log_p_pop(df: pd.DataFrame, table: dict) -> np.ndarray:
-    raw = np.array([table.get(f"{r}_{n}", 1.0 / n)
-                    for r, n in zip(df["pop_rank"], df["n_runners"])])
-    return np.log(metrics.normalize_within_race(raw, df["race_id"].to_numpy()))
+    # 運用側と同じ実装（SK-02）
+    from nar.eval.deviation import log_p_pop as _shared
+
+    return _shared(df["pop_rank"].to_numpy(), df["n_runners"].to_numpy(),
+                   df["race_id"].to_numpy(), table)
 
 
 # ------------------------------------------------------------------ 学習
@@ -212,10 +214,11 @@ def blend(probs: dict, w: dict, rid) -> np.ndarray:
 
 
 # ------------------------------------------------------------------ データ
-def load():
-    names = json.loads((WIN_EVAL_DIR / "feature_names.json").read_text(encoding="utf-8"))
-    stats = json.loads((WIN_EVAL_DIR / "standardizer.json").read_text(encoding="utf-8"))
-    meta = json.loads((WIN_EVAL_DIR / "final_meta.json").read_text(encoding="utf-8"))
+def load(src_dir: Path | None = None):
+    src_dir = src_dir or WIN_EVAL_DIR
+    names = json.loads((src_dir / "feature_names.json").read_text(encoding="utf-8"))
+    stats = json.loads((src_dir / "standardizer.json").read_text(encoding="utf-8"))
+    meta = json.loads((src_dir / "final_meta.json").read_text(encoding="utf-8"))
     cols = ["race_id", "horse_no", "race_date", "finish_pos", "is_win", "market_pop_rank",
             *[c for c in names if c != "market_pop_rank"]]
     feat = pd.read_parquet(GOLD, columns=cols)
@@ -330,11 +333,78 @@ def cmd_score_oos(args) -> int:
     return 0
 
 
+def cmd_fit_prod(args) -> int:
+    """出荷用（回帰だけ）。人気派生系統の出荷用 fit-final と同じ学習期間・特徴量・標準化統計量。
+
+    運用で使うのは ridge と lgbm だけ（評価では TabM 回帰の重みが 0 だった。運用側に
+    PyTorch / ONNX の回帰経路を足さないため）。重みは較正区間で付け直す。
+    """
+    src = ROOT / args.features_from
+    feat, names, stats, meta = load(src)
+    start, end = (pd.Timestamp(meta["train_period"][k]) for k in ("start", "end"))
+    d = pd.to_datetime(feat["race_date"])
+    window = trainable(feat[(d >= start) & (d <= end)])
+    wd = pd.to_datetime(window["race_date"])
+    cut = wd.max() - pd.Timedelta(days=HOLDOUT_DAYS)
+    fit_raw, cal_raw = window[wd <= cut], window[wd > cut]
+    table = fit_pop_table(pop_inputs(fit_raw))
+    fit_df = prepare(fit_raw, names, stats, table)
+    cal_df = prepare(cal_raw, names, stats, table)
+    log.info("出荷用 学習 %s 行 / 較正 %s 行（%s〜%s）", f"{len(fit_df):,}", f"{len(cal_df):,}",
+             start.date(), end.date())
+    rid, y = cal_df["race_id"].to_numpy(), cal_df["is_win"].to_numpy()
+
+    from sklearn.linear_model import Ridge
+    import lightgbm as lgb
+
+    yt = fit_df["dev_target"].to_numpy()
+    ridge = Ridge(alpha=1.0).fit(fit_df[names].to_numpy(), yt)
+    params = {k: v for k, v in LgbmRanker().params.items()
+              if k not in ("objective", "metric", "ndcg_eval_at", "label_gain")}
+    params.update(objective="regression", metric="l2")
+    booster = lgb.train(params, lgb.Dataset(fit_df[names], label=yt, feature_name=list(names)),
+                        num_boost_round=300)
+    pred = {"ridge": ridge.predict(cal_df[names].to_numpy()),
+            "lgbm": booster.predict(cal_df[names])}
+    regcal = calibrate_reg(pred, cal_df["offset"].to_numpy(), rid, y)
+    pg = probs_reg(pred, regcal, cal_df["offset"].to_numpy(), rid)
+    w = stack(pg, y, rid)
+    from nar.eval.deviation import reg_probability
+
+    p_ens = reg_probability(cal_df["offset"].to_numpy(), pred, regcal, w, rid)
+    report = {"p_pop": summary(np.exp(cal_df["offset"].to_numpy()), cal_df),
+              **{f"reg_{m}": summary(pg[m], cal_df) for m in pg},
+              "reg_ensemble": summary(p_ens, cal_df)}
+
+    out = OUT / "final_prod"
+    out.mkdir(parents=True, exist_ok=True)
+    booster.save_model(str(out / "dev_reg_lgbm.txt"))
+    (out / "dev_reg_ridge.json").write_text(json.dumps(
+        {"coef": dict(zip(names, ridge.coef_.tolist())), "intercept": float(ridge.intercept_)},
+        ensure_ascii=False, indent=2), encoding="utf-8")
+    (out / "dev_meta.json").write_text(json.dumps({
+        "model": "deviation_regression", "target": "finish_pos - popularity",
+        "purpose": "production", "features": names,
+        "features_from": str(src.relative_to(ROOT)), "train_period": meta["train_period"],
+        "calibration_after": str(cut.date()), "pop_table": table,
+        "reg_calibration": regcal, "reg_weights": w,
+        "oos_evaluated_by": str((OUT / "oos_metrics.json").relative_to(ROOT)) + "（評価用、全3モデル）",
+        "holdout_metrics": report,
+    }, ensure_ascii=False, indent=2, default=float), encoding="utf-8")
+    print(pd.DataFrame(report).T[["race_nll", "top1", "top3", "ece"]].round(4).to_string())
+    print(f"重み {w}\n較正 {regcal}")
+    return 0
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("fit").set_defaults(func=cmd_fit)
+    s = sub.add_parser("fit-prod")
+    s.add_argument("--features-from", default="artifacts/final_pop_prod",
+                   help="出荷用 fit-final の出力（feature_names / standardizer / final_meta）")
+    s.set_defaults(func=cmd_fit_prod)
     s = sub.add_parser("score-oos")
     s.add_argument("--unlock-oos", action="store_true")
     s.add_argument("--reason", required=True)

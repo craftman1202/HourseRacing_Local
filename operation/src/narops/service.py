@@ -78,6 +78,8 @@ class ModelBundle:
     pool_model: PoolSizeModel = field(default_factory=PoolSizeModel)
     # 複勝専用モデル（runtime.PlaceModels）。平地の新しいリリースだけが持つ。
     place: Any = None
+    # 人気との乖離（回帰）モデル（runtime.DeviationModel）。あれば単勝確率はこちらで出す。
+    deviation: Any = None
 
     def is_loaded(self) -> bool:
         return self.manifest is not None and bool(self.models)
@@ -105,6 +107,7 @@ class Services:
     pool_model: PoolSizeModel = field(default_factory=PoolSizeModel)
     feature_config: Any = None
     place: Any = None
+    deviation: Any = None
 
     # ばんえい用の配布物。未設定なら「ばんえいの推論はしない」を意味する。
     # 平地のモデルで代替はしない — 距離も回りも無い競技に、距離と回りの
@@ -157,7 +160,7 @@ class Services:
                     "平地モデルでは推論しません。")
             return self.banei
         return ModelBundle(self.manifest, self.models, self.standardizer,
-                           self.feature_config, self.pool_model, self.place)
+                           self.feature_config, self.pool_model, self.place, self.deviation)
 
     def supports_banei(self) -> bool:
         return self.banei is not None and self.banei.is_loaded()
@@ -536,6 +539,16 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
     row["track_name"] = track_names().get(
         int(row["baba_code"]), f"場{int(row['baba_code'])}")
 
+    # 人気順を特徴量に持つリリース: 締切前の単勝オッズから人気を作って出馬表に足す。
+    # オッズが取れないときは人気が NaN（=最下位扱い、特徴量は学習時の中央値で補完）。
+    pop_by_horse: dict = {}
+    if getattr(bundle.feature_config, "with_popularity", False):
+        from .shared import popularity_from_odds
+
+        if not odds_df.empty:
+            pop_by_horse = dict(zip(odds_df["horse_no"], popularity_from_odds(odds_df["odds_win"])))
+        card = card.assign(popularity=card["horse_no"].map(pop_by_horse).astype(float))
+
     try:
         feats = build_for_race(svc.wh, card, row, bundle.manifest, bundle.feature_config,
                                max_bytes_billed=svc.cfg.max_bytes_billed,
@@ -565,7 +578,10 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
             class_level=int(row.get("class_level", 1)),
             day_budget_remaining=day_budget_remaining(
                 svc.wh, day, svc.cfg.max_bet_per_day),
-            place=bundle.place, place_odds=place_odds, strategy=svc.cfg.strategy)
+            place=bundle.place, place_odds=place_odds, strategy=svc.cfg.strategy,
+            deviation=bundle.deviation,
+            popularity=(feats.frame["horse_no"].map(pop_by_horse).to_numpy(dtype=float)
+                        if bundle.deviation is not None else None))
     except DataNotYetPublished as exc:
         # 2026-09-21 診断用: 032026092104 でリトライが積まれず直接 Critical に
         # 落ちた原因が、テスト環境（インメモリ TaskQueue）の再現では再現しない。

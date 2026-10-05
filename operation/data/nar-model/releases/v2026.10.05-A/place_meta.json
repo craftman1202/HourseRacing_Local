@@ -1,0 +1,134 @@
+{
+  "purpose": "production",
+  "target": "is_place (k=3 if n>=8, 2 if 5..7)",
+  "win_release": "artifacts/final_pop_prod",
+  "train_period": {
+    "start": "1998-01-01",
+    "end": "2026-09-17"
+  },
+  "calibration_after": "2026-06-17",
+  "holdout_days": 90,
+  "n_fit_rows": 4263762,
+  "n_calibration_rows": 35037,
+  "feature_names": [
+    "market_pop_pct",
+    "market_pop_rank",
+    "market_pop_logrank",
+    "h_si_last3",
+    "h_winrate_prior",
+    "h_top3rate_prior",
+    "d_track_starts",
+    "d_dist_starts",
+    "h_days_since_prev",
+    "d_all_winrate",
+    "d_pair_winrate",
+    "d_best_speed_good",
+    "d_turn_starts",
+    "d_best_speed",
+    "is_first_start"
+  ],
+  "params": {
+    "clogit_l2": 0.001,
+    "clogit_l1": 0.0,
+    "lgbm": {
+      "objective": "lambdarank",
+      "metric": "ndcg",
+      "ndcg_eval_at": [
+        1,
+        3
+      ],
+      "label_gain": [
+        0.0,
+        1.0
+      ],
+      "learning_rate": 0.05,
+      "num_leaves": 31,
+      "min_data_in_leaf": 50,
+      "feature_fraction": 0.8,
+      "bagging_fraction": 0.8,
+      "bagging_freq": 1,
+      "verbosity": -1,
+      "seed": 0,
+      "deterministic": true,
+      "force_row_wise": true
+    },
+    "lgbm_rounds": 300,
+    "tabm": {
+      "k": 4,
+      "hidden": 128,
+      "n_layers": 2,
+      "epochs": 3,
+      "batch_races": 256,
+      "seed": 0
+    }
+  },
+  "temperatures": {
+    "clogit": 0.8683690118317006,
+    "lgbm": 1.2146890821032699,
+    "tabm": 0.8233472260642583
+  },
+  "ensemble_weights": {
+    "clogit": 1.2422772199498714e-06,
+    "lgbm": 0.48988164849174065,
+    "tabm": 0.5101171092310394
+  },
+  "ensemble_temperature": 0.989676931223345,
+  "calibration_metrics": {
+    "clogit": {
+      "logloss": 0.4745591356925717,
+      "brier": 0.15532586821952157,
+      "auc": 0.8055481947887617,
+      "top1_place_rate": 0.7344729344729345,
+      "topk_precision": 0.5954890180242293,
+      "ece10": 0.01933956509957763,
+      "n_rows": 35037,
+      "n_races": 3510
+    },
+    "lgbm": {
+      "logloss": 0.46926973955090284,
+      "brier": 0.1535413383567752,
+      "auc": 0.8103031837451053,
+      "top1_place_rate": 0.7458689458689459,
+      "topk_precision": 0.5992317541613317,
+      "ece10": 0.018199384574171053,
+      "n_rows": 35037,
+      "n_races": 3510
+    },
+    "tabm": {
+      "logloss": 0.4691381345201719,
+      "brier": 0.153741172447207,
+      "auc": 0.8094193489387042,
+      "top1_place_rate": 0.735897435897436,
+      "topk_precision": 0.5991332611050921,
+      "ece10": 0.012758823270763504,
+      "n_rows": 35037,
+      "n_races": 3510
+    },
+    "ensemble": {
+      "logloss": 0.467583556788182,
+      "brier": 0.15312759052942185,
+      "auc": 0.8102317074502655,
+      "top1_place_rate": 0.7438746438746439,
+      "topk_precision": 0.5997242194425293,
+      "ece10": 0.007905930956696334,
+      "n_rows": 35037,
+      "n_races": 3510
+    },
+    "baseline_uniform": {
+      "logloss": 0.5973849957439927,
+      "brier": 0.20392023197378964,
+      "auc": 0.559107464970383,
+      "top1_place_rate": 0.26096866096866095,
+      "topk_precision": 0.2911454742440658,
+      "ece10": 0.00011416502554443578,
+      "n_rows": 35037,
+      "n_races": 3510
+    }
+  },
+  "oos_evaluated_by": "artifacts/place_pop/oos_place_metrics.json（評価用モデル）",
+  "timings_sec": {
+    "clogit": 19.97821307182312,
+    "lgbm": 64.23967599868774,
+    "tabm": 409.32341408729553
+  }
+}

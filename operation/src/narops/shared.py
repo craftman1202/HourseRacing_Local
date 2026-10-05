@@ -26,6 +26,9 @@ from nar.eval.calibration import TemperatureScaler  # noqa: E402
 from nar.eval.economic import (  # noqa: E402
     NOMINAL_TAKEOUT, effective_odds, implied_takeout, inverse_odds_sum, kelly_fraction,
 )
+from nar.eval.deviation import (  # noqa: E402
+    log_p_pop, popularity_from_odds, reg_probability,
+)
 from nar.eval.place import (  # noqa: E402
     estimated_place_odds, max_ev_bets, place_probability, place_slots,
 )
@@ -51,6 +54,7 @@ __all__ = [
     "race_softmax", "normalize_within_race", "race_nll", "harville_place_probability",
     "expected_calibration_error", "summary_metrics",
     "estimated_place_odds", "max_ev_bets", "place_probability", "place_slots",
+    "log_p_pop", "popularity_from_odds", "reg_probability",
     "learning_package_root", "learning_conf_dir", "feature_config_for",
     "track_names",
 ]
@@ -61,6 +65,9 @@ __all__ = [
 _CONF_DIRS = {
     "flat": "conf",
     "banei": "conf_banei",
+    # 人気順を特徴量に持つ平地の派生系統（2026-10-05、乖離回帰モデル）。リリースの特徴量に
+    # market_pop_* があるときだけ使う（runtime.needs_popularity）。
+    "flat_pop": "conf_pop",
 }
 
 

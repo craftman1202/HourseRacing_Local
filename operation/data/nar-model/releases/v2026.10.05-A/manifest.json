@@ -1,0 +1,105 @@
+{
+  "model_id": "v2026.10.05-A",
+  "dataset_version": "db1721ea18056489e82bed3f7e5a8258de65a9b99e1389d239f22c2acf4c9287",
+  "train_period": {
+    "start": "1998-01-01",
+    "end": "2026-09-17"
+  },
+  "feature_spec_hash": "ac49f7d6e86904b83b7f63392bb63002447ec1cfbee2627cdf0536f27682b693",
+  "model_sha256": {
+    "clogit_beta.json": "16a1565057420f3aec619246acd161b69d552f648984ca075fbd518b1f03481d",
+    "dev_meta.json": "fe25bc3a60250fcb29ab829ccc3d8e88f0d9fef1ce5c75aa8b52b1b5ba7ba142",
+    "dev_reg_lgbm.txt": "53458c5dda54bac1bd69c1bfa1a13a20369d0fd23f9f7fe1adf86434401c57c0",
+    "dev_reg_ridge.json": "e3a73fabf8ec4303257c70aa74e6185c83cbf9c74f12fe4a9ebbcabaca72cc82",
+    "feature_spec.json": "87dec6edb6dc4c4bfbcfa9ac525f8c8826db1b308a9b1c02b3b968b59b0d3499",
+    "lgbm_rank.txt": "c8c7917a998ea1dfa9d230648bee9758bd66fb9fced1e5ca9711860f5c1ab76c",
+    "place_clogit_beta.json": "5828d92bf19ae836571b46b461a184f9ecdc72ac9174906dd934ebd437725d7b",
+    "place_lgbm_rank.txt": "08ec459d310c9bdc115c756bc9a4b75e5004b092757d8cf6af4f28c6f6b02c13",
+    "place_meta.json": "fde036bd7817193da73df5f1390f1874aac72ac6ff18dc2d42ee436312526ce6",
+    "place_tabm.onnx": "ac4d82fe287bdd835f7930925b89913cedac14eecfac1ac10578b65af7f70de5",
+    "place_tabm.onnx.data": "23953d5f7eef9775f4a32651891eb0acc4c8814c3cfef17473a23f0081dbf22f",
+    "standardizer.json": "1f0806498ac7452c63b96c86f48903dac1cdf79d140a98d86cf2a2ab9cfaae10",
+    "tabm.onnx": "aa8c9ff00c66dd5d07340aa5f8ca0945d7d8f4daecb65004ff4a3fd4fd141372",
+    "tabm.onnx.data": "0c27274ef12becceae69b43e93b1a5235444e771bb1352b31379e692b3769953"
+  },
+  "oos_metrics": {
+    "race_nll": 1.6387118650954298,
+    "uniform_nll": 2.302253855383761,
+    "brier": 0.7263780839712578,
+    "top1": 0.45036108691376064,
+    "top3": 0.6102134674647108,
+    "ndcg@3": 0.6494587261608522,
+    "spearman": 0.5700416499532631,
+    "ece": 0.004728983768793362
+  },
+  "lookback_days": 180,
+  "track": "A",
+  "calibration": {
+    "temperature": 0.9783277408654639
+  },
+  "git_commit": "",
+  "created_at": "2026-10-05T09:15:01",
+  "ensemble_weights": {
+    "lgbm": 0.5508325155938186,
+    "tabm": 0.4491674844061813
+  },
+  "feature_spec": {
+    "names": [
+      "market_pop_pct",
+      "market_pop_rank",
+      "market_pop_logrank",
+      "h_si_last3",
+      "h_winrate_prior",
+      "h_top3rate_prior",
+      "d_track_starts",
+      "d_dist_starts",
+      "h_days_since_prev",
+      "d_all_winrate",
+      "d_pair_winrate",
+      "d_best_speed_good",
+      "d_turn_starts",
+      "d_best_speed",
+      "is_first_start"
+    ],
+    "dtypes": {
+      "market_pop_pct": "float64",
+      "market_pop_rank": "float64",
+      "market_pop_logrank": "float64",
+      "h_si_last3": "float64",
+      "h_winrate_prior": "float64",
+      "h_top3rate_prior": "float64",
+      "d_track_starts": "float64",
+      "d_dist_starts": "float64",
+      "h_days_since_prev": "float64",
+      "d_all_winrate": "float64",
+      "d_pair_winrate": "float64",
+      "d_best_speed_good": "float64",
+      "d_turn_starts": "float64",
+      "d_best_speed": "float64",
+      "is_first_start": "float64"
+    },
+    "missing": {
+      "market_pop_pct": "nan",
+      "market_pop_rank": "nan",
+      "market_pop_logrank": "nan",
+      "h_si_last3": "nan",
+      "h_winrate_prior": "nan",
+      "h_top3rate_prior": "nan",
+      "d_track_starts": "nan",
+      "d_dist_starts": "nan",
+      "h_days_since_prev": "nan",
+      "d_all_winrate": "nan",
+      "d_pair_winrate": "nan",
+      "d_best_speed_good": "nan",
+      "d_turn_starts": "nan",
+      "d_best_speed": "nan",
+      "is_first_start": "nan"
+    }
+  },
+  "purpose": "production",
+  "oos_evaluated_on": "2023-08-04",
+  "model_temperatures": {
+    "lgbm": 0.9783277408654639,
+    "tabm": 0.975022087529273
+  }
+}

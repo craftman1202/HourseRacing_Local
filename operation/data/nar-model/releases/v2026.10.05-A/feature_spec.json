@@ -1,0 +1,53 @@
+{
+  "names": [
+    "market_pop_pct",
+    "market_pop_rank",
+    "market_pop_logrank",
+    "h_si_last3",
+    "h_winrate_prior",
+    "h_top3rate_prior",
+    "d_track_starts",
+    "d_dist_starts",
+    "h_days_since_prev",
+    "d_all_winrate",
+    "d_pair_winrate",
+    "d_best_speed_good",
+    "d_turn_starts",
+    "d_best_speed",
+    "is_first_start"
+  ],
+  "dtypes": {
+    "market_pop_pct": "float64",
+    "market_pop_rank": "float64",
+    "market_pop_logrank": "float64",
+    "h_si_last3": "float64",
+    "h_winrate_prior": "float64",
+    "h_top3rate_prior": "float64",
+    "d_track_starts": "float64",
+    "d_dist_starts": "float64",
+    "h_days_since_prev": "float64",
+    "d_all_winrate": "float64",
+    "d_pair_winrate": "float64",
+    "d_best_speed_good": "float64",
+    "d_turn_starts": "float64",
+    "d_best_speed": "float64",
+    "is_first_start": "float64"
+  },
+  "missing": {
+    "market_pop_pct": "nan",
+    "market_pop_rank": "nan",
+    "market_pop_logrank": "nan",
+    "h_si_last3": "nan",
+    "h_winrate_prior": "nan",
+    "h_top3rate_prior": "nan",
+    "d_track_starts": "nan",
+    "d_dist_starts": "nan",
+    "h_days_since_prev": "nan",
+    "d_all_winrate": "nan",
+    "d_pair_winrate": "nan",
+    "d_best_speed_good": "nan",
+    "d_turn_starts": "nan",
+    "d_best_speed": "nan",
+    "is_first_start": "nan"
+  }
+}

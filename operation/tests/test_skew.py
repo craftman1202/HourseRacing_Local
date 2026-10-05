@@ -110,8 +110,11 @@ def test_sk03_out_of_whitelist_column_blocks(cfg):
 
 
 def test_sk03_tolerated_set_matches_design(cfg):
+    # 2026-10-05: 人気順の3列を追加。推論時は締切前オッズから作る人気、翌日の再計算は
+    # 確定人気なので、時点の違いで必ずずれる（乖離回帰モデルのリリースだけが使う列）。
     assert cfg.tolerated_skew_columns == frozenset(
-        {"j_wins_today", "t_wins_today", "track_speed_bias"})
+        {"j_wins_today", "t_wins_today", "track_speed_bias",
+         "market_pop_rank", "market_pop_logrank", "market_pop_pct"})
 
 
 # ------------------------------------------------------------------ 列構成の差
