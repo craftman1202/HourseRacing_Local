@@ -396,11 +396,78 @@ def cmd_fit_prod(args) -> int:
     return 0
 
 
+def cmd_walkforward(args) -> int:
+    """walk-forward 5-fold の OOF（回帰と人気だけ）。OOS に触れない。
+
+    fold ごとに: 学習 = train_start〜fold.train_end（embargo 済み）、末尾 90 日で較正。
+    特徴量は人気派生系統の walk-forward がその fold の学習期間内で選んだ列
+    （artifacts/pop/selected_features.csv）、標準化統計量は fold の学習行から取る。
+    運用と同じく ridge + lgbm（TabM 回帰は評価で重み 0 だったので含めない）。
+    """
+    from sklearn.linear_model import Ridge
+    import lightgbm as lgb
+
+    from nar.eval.deviation import reg_probability
+    from nar.eval.splits import make_folds
+    from nar.train.pipeline import fit_stats
+
+    ccfg = cv_config()
+    sel = pd.read_csv(ROOT / "artifacts/pop/selected_features.csv")
+    sel_by_fold = {int(r["fold"]): [c.strip() for c in r["selected"].split(",")]
+                   for _, r in sel.iterrows()}
+    cols_all = sorted({c for v in sel_by_fold.values() for c in v} | {"market_pop_rank"})
+    feat = pd.read_parquet(GOLD, columns=["race_id", "horse_no", "race_date", "finish_pos",
+                                          "is_win", *cols_all])
+    feat = trainable(feat)
+    d = pd.to_datetime(feat["race_date"])
+    out_reg, out_pop, info = [], [], []
+    for fold in make_folds(ccfg):
+        names = sel_by_fold[fold.index]
+        tr = feat[(d >= pd.Timestamp(fold.train_start)) & (d <= pd.Timestamp(fold.train_end))]
+        va = feat[(d >= pd.Timestamp(fold.valid_start)) & (d <= pd.Timestamp(fold.valid_end))]
+        wd = pd.to_datetime(tr["race_date"])
+        cut = wd.max() - pd.Timedelta(days=HOLDOUT_DAYS)
+        fit_raw, cal_raw = tr[wd <= cut], tr[wd > cut]
+        stats = fit_stats(fit_raw, names)
+        table = fit_pop_table(pop_inputs(fit_raw))
+        fit_df, cal_df, va_df = (prepare(x, names, stats, table) for x in (fit_raw, cal_raw, va))
+        yt = fit_df["dev_target"].to_numpy()
+        ridge = Ridge(alpha=1.0).fit(fit_df[names].to_numpy(), yt)
+        params = {k: v for k, v in LgbmRanker().params.items()
+                  if k not in ("objective", "metric", "ndcg_eval_at", "label_gain")}
+        params.update(objective="regression", metric="l2")
+        booster = lgb.train(params, lgb.Dataset(fit_df[names], label=yt,
+                                                feature_name=list(names)), num_boost_round=300)
+        rid_c, y_c = cal_df["race_id"].to_numpy(), cal_df["is_win"].to_numpy()
+        pc = {"ridge": ridge.predict(cal_df[names].to_numpy()), "lgbm": booster.predict(cal_df[names])}
+        regcal = calibrate_reg(pc, cal_df["offset"].to_numpy(), rid_c, y_c)
+        w = stack(probs_reg(pc, regcal, cal_df["offset"].to_numpy(), rid_c), y_c, rid_c)
+        rid_v = va_df["race_id"].to_numpy()
+        pv = {"ridge": ridge.predict(va_df[names].to_numpy()), "lgbm": booster.predict(va_df[names])}
+        p_reg = reg_probability(va_df["offset"].to_numpy(), pv, regcal, w, rid_v)
+        base = va_df[["race_id", "horse_no", "race_date", "is_win", "finish_pos"]].assign(fold=fold.index)
+        out_reg.append(base.assign(ensemble=p_reg))
+        out_pop.append(base.assign(ensemble=np.exp(va_df["offset"].to_numpy())))
+        m_reg, m_pop = summary(p_reg, va_df), summary(np.exp(va_df["offset"].to_numpy()), va_df)
+        info.append({"fold": fold.index, "n_features": len(names), "weights": w,
+                     "reg_nll": m_reg["race_nll"], "pop_nll": m_pop["race_nll"]})
+        log.info("fold %d: 特徴量 %d / 重み %s / NLL 回帰 %.4f・人気だけ %.4f", fold.index,
+                 len(names), w, m_reg["race_nll"], m_pop["race_nll"])
+    OUT.mkdir(parents=True, exist_ok=True)
+    pd.concat(out_reg).to_parquet(OUT / "oof_win_reg.parquet", index=False)
+    pd.concat(out_pop).to_parquet(OUT / "oof_win_pop.parquet", index=False)
+    (OUT / "oof_info.json").write_text(json.dumps(info, ensure_ascii=False, indent=2,
+                                                  default=float), encoding="utf-8")
+    print(pd.DataFrame(info).to_string(index=False))
+    return 0
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("fit").set_defaults(func=cmd_fit)
+    sub.add_parser("walkforward").set_defaults(func=cmd_walkforward)
     s = sub.add_parser("fit-prod")
     s.add_argument("--features-from", default="artifacts/final_pop_prod",
                    help="出荷用 fit-final の出力（feature_names / standardizer / final_meta）")
