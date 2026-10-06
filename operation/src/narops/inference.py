@@ -50,6 +50,8 @@ class InferenceResult:
     per_model: dict[str, np.ndarray]
     computed_at: datetime
     notes: list[str] = field(default_factory=list)
+    # 3連単などの組み合わせ買い（shared.TrifectaPlan のリスト）。単勝・複勝の frame とは別に持つ
+    exotic: list = field(default_factory=list)
 
     def bet_candidates(self, min_ev: float) -> pd.DataFrame:
         # 「EV の高い方を1点」経路では賭ける券種の EV が ev_bet に入る（複勝を買う馬は
@@ -189,9 +191,12 @@ def run_inference(
             notes.append("人気（締切前オッズ）が無いため、人気の事前確率は全馬同じ扱い")
         p = deviation.predict(features, pop, race_ids)
         per_model = {"deviation": p}
-        return _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds,
-                       pool_model, baba_code, class_level, day_budget_remaining, takeout,
-                       place, place_odds, strategy)
+        res = _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds,
+                      pool_model, baba_code, class_level, day_budget_remaining, takeout,
+                      place, place_odds, strategy)
+        res.exotic = _trifecta(features, pop, deviation.meta.get("pop_table"), cfg,
+                               day_budget_remaining, int(res.frame["stake_yen"].sum()), res.notes)
+        return res
 
     per_model: dict[str, np.ndarray] = {}
     for name, model in models.items():
@@ -285,6 +290,32 @@ def _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds,
                          takeout, day_budget_remaining)
     return InferenceResult(race_id, manifests[0].model_id, track_used, out,
                            per_model, clock.now(), notes)
+
+
+def _trifecta(features: pd.DataFrame, pop: np.ndarray, pop_table: dict | None, cfg: OpsConfig,
+              day_budget_remaining: int | None, used_yen: int, notes: list[str]) -> list:
+    """3連単「1番人気1着固定流し」（判定は nar.eval.exotic の単一実装）。
+
+    1日の残枠に全点が収まらないときは買わない（点数を削ると検証した買い方と別物になる）。
+    """
+    tcfg = getattr(cfg, "trifecta", None)
+    if not tcfg or not pop_table:
+        return []
+    from .shared import trifecta_fav_axis
+
+    plan = trifecta_fav_axis(features["horse_no"].to_numpy(), pop, pop_table,
+                             min_p=float(tcfg.get("min_p", 0.5)),
+                             n_partners=int(tcfg.get("n_partners", 8)),
+                             unit_yen=int(tcfg.get("unit_yen", 100)))
+    if plan is None:
+        return []
+    if day_budget_remaining is not None:
+        left = min(day_budget_remaining, cfg.max_bet_per_day) - used_yen
+        if plan.stake_yen > left:
+            notes.append(f"3連単 {len(plan.tickets)}点（¥{plan.stake_yen:,}）は本日残枠 ¥{max(left, 0):,} "
+                         "を超えるため見送り")
+            return []
+    return [plan]
 
 
 def _economics(out: pd.DataFrame, cfg: OpsConfig, pool_model: PoolSizeModel | None,

@@ -75,6 +75,17 @@ strategy:
   budget_place_per_race: 10000   # 複勝の1レース予算
   place_odds_alpha: 0.257        # 複勝の想定払戻 = 下限 + α(上限 − 下限)。実払戻の平均位置
 
+# 3連単「1番人気1着固定流し」（2026-10-06）。人気だけの単勝確率（人気×頭数の勝率表、リリースの
+# dev_meta.json）で 1番人気 ≥ min_p のレースに、1着=1番人気・2・3着=人気2〜(n_partners+1)位の
+# 順序付き全組を1点 unit_yen 円。検証: 5-fold 平均 ROI 1.137 / OOS 1.012 [0.84, 1.20]、的中 約53%。
+# 選ばれるのは事実上 5〜6 頭立て（learning/src/nar/eval/exotic.py）。乖離モデルを持つ平地リリースだけ。
+exotic:
+  trifecta_fav_axis:
+    enabled: true
+    min_p: 0.5
+    n_partners: 8
+    unit_yen: 100
+
 skew:
   # 日内更新に起因する差分が許容される列。これ以外の乖離は即 Blocker（SK-03）
   tolerated_columns:

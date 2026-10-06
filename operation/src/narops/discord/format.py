@@ -87,7 +87,7 @@ def race_embed(
     start_ts: datetime, now: datetime, model_release: str, track_used: str,
     candidates: pd.DataFrame, horse_names: dict[int, str] | None = None,
     day_budget_remaining: int | None = None, pool_yen: float | None = None,
-    min_ev: float = 1.05,
+    min_ev: float = 1.05, exotic: list | None = None,
 ) -> Embed | None:
     """レース予測通知。
 
@@ -100,7 +100,7 @@ def race_embed(
             class_name=class_name, distance=distance, start_ts=start_ts, now=now,
             model_release=model_release, track_used=track_used, candidates=candidates,
             horse_names=horse_names, day_budget_remaining=day_budget_remaining,
-            min_ev=min_ev)
+            min_ev=min_ev, exotic=exotic)
     shown = candidates[candidates["ev_adjusted"] >= min_ev]
     if shown.empty:
         return None
@@ -158,17 +158,20 @@ def _race_embed_max_ev(
     *, race_id: str, track_name: str, race_no: int, class_name: str, distance: int,
     start_ts: datetime, now: datetime, model_release: str, track_used: str,
     candidates: pd.DataFrame, horse_names: dict[int, str] | None,
-    day_budget_remaining: int | None, min_ev: float,
+    day_budget_remaining: int | None, min_ev: float, exotic: list | None = None,
 ) -> Embed | None:
     """「単勝・複勝の EV の高い方を1点」の通知（2026-09-27）。
 
     単勝 EV・複勝 EV のどちらかが min_ev 以上の馬と、賭ける馬を載せる。
     推奨欄は券種（単/複）と金額。金額は bet_candidate の stake_yen と一致させる（DC-05）。
+    `exotic`（3連単の流し、2026-10-06）があれば買い方と全点の合計額を別欄に載せる。
+    単勝・複勝の候補が無くても、3連単を買うレースは通知する。
     """
+    exotic = list(exotic or [])
     ev_w = candidates["ev_adjusted"]
     ev_p = candidates["ev_place"]
     shown = candidates[(ev_w >= min_ev) | (ev_p >= min_ev) | (candidates["stake_yen"] > 0)]
-    if shown.empty:
+    if shown.empty and not exotic:
         return None
 
     names = horse_names or {}
@@ -185,18 +188,26 @@ def _race_embed_max_ev(
             f" {no:>3}  {name}  {fmt_pct(r['p_win']):>6} {fmt_pct(r['p_top3']):>6}"
             f" {fmt_ev(r['ev_adjusted']):>5} {fmt_ev(r['ev_place']):>5}  {rec}")
     lines.append("```")
+    if shown.empty:          # 3連単だけのレース。空の表は出さない
+        lines = []
 
     bets = shown[shown["stake_yen"] > 0]
-    tail = [f"買い目合計 {fmt_yen(int(bets['stake_yen'].sum()))}"]
+    ex_total = sum(int(pl.stake_yen) for pl in exotic)
+    for pl in exotic:
+        lines.append(_trifecta_lines(pl, names))
+    tail = [f"買い目合計 {fmt_yen(int(bets['stake_yen'].sum()) + ex_total)}"]
     for t in ("単勝", "複勝"):
         part = bets[bets.get("bet_type") == t] if "bet_type" in bets.columns else bets.iloc[0:0]
         if len(part):
             tail.append(f"{t} {fmt_yen(int(part['stake_yen'].sum()))}")
+    if ex_total:
+        tail.append(f"3連単 {fmt_yen(ex_total)}")
     if day_budget_remaining is not None:
         tail.append(f"本日残枠 {fmt_yen(day_budget_remaining)}")
     lines.append("　".join(tail))
-    lines.append("推奨: 単勝・複勝の EV の高い方を1点（EV≥1・的中確率≥60%・ケリー）")
-    if shown["ev_place"].isna().all():
+    if not shown.empty:
+        lines.append("推奨: 単勝・複勝の EV の高い方を1点（EV≥1・的中確率≥60%・ケリー）")
+    if not shown.empty and shown["ev_place"].isna().all():
         lines.append("⚠ 複勝オッズ未取得のため単勝だけで判定")
 
     best = float(np.nanmax(np.r_[ev_w.loc[shown.index].to_numpy(dtype=float),
@@ -205,9 +216,18 @@ def _race_embed_max_ev(
         title=f"🏇 {track_name} {race_no}R  {class_name} {distance}m  "
               f"発走 {jst:%H:%M} (残り{remaining:.0f}分)",
         description="\n".join(lines),
-        color=COLOR_GREEN if len(bets) else ev_color(best),
+        color=COLOR_GREEN if len(bets) or exotic else ev_color(best),
         footer=f"{model_release} / トラック{track_used}",
     )
+
+
+def _trifecta_lines(plan, names: dict) -> str:
+    """3連単 1着固定流しの買い方。全点を書き出すと長いので、軸・相手・点数・金額で示す。"""
+    axis = f"{plan.axis}番 {names.get(plan.axis, '')}".rstrip()
+    partners = ",".join(str(h) for h in plan.partners)
+    return (f"🎯 **3連単 1着固定流し**  1着 {axis} → 2・3着 {partners}\n"
+            f"　{len(plan.tickets)}点 × ¥{plan.unit_yen:,} = **¥{plan.stake_yen:,}**"
+            f"（1番人気の単勝確率 {plan.p_axis * 100:.0f}%、人気×頭数の勝率表）")
 
 
 def batch(embeds: list[Embed], max_count: int = MAX_EMBEDS,

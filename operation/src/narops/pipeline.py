@@ -82,13 +82,26 @@ def write_prediction(wh: Warehouse, race_id: str, frame: pd.DataFrame,
 
 def write_bet_candidates(wh: Warehouse, race_id: str, frame: pd.DataFrame,
                          model_release: str, race_date: date, clock: Clock,
-                         bet_type: str = "単勝") -> int:
-    """ベット候補。シャドー版は呼んではいけない（RL-02 は release 側で強制）。"""
+                         bet_type: str = "単勝", exotic: list | None = None) -> int:
+    """ベット候補。シャドー版は呼んではいけない（RL-02 は release 側で強制）。
+
+    `exotic`（shared.TrifectaPlan のリスト）は1プランを1行で残す: 馬番 = 軸、金額 = 全点の合計、
+    券種 = 3連単。1日の残枠（day_budget_remaining）がこの表の合計で数えるので必ず記録する。
+    組の明細は通知に載せる（表に列を足すと BigQuery 側のスキーマ変更になるため持たない）。
+    """
     bets = frame[frame["stake_yen"] > 0]
     wh.execute("DELETE FROM bet_candidate WHERE race_date = ? AND race_id = ? "
                "AND model_release = ?", [race_date, race_id, model_release])
+    ex = pd.DataFrame([{
+        "race_id": race_id, "horse_no": int(pl.axis), "race_date": race_date,
+        "model_release": model_release, "bet_type": "3連単",
+        "stake_yen": int(pl.stake_yen), "ev": float("nan"), "ev_adjusted": float("nan"),
+        "kelly": 0.0, "computed_at": clock.now()} for pl in (exotic or [])],
+        columns=BET_COLUMNS)
     if bets.empty:
-        return 0
+        if len(ex):
+            wh.insert_frame("bet_candidate", canonicalize_frame(ex))
+        return len(ex)
     # 「EV の高い方を1点」経路では馬ごとに券種が違い、ev/ev_adjusted には
     # 賭ける券種の EV（ev_bet）を入れる。従来経路は単勝のみ。
     types = bets["bet_type"] if "bet_type" in bets.columns else bet_type
@@ -103,6 +116,8 @@ def write_bet_candidates(wh: Warehouse, race_id: str, frame: pd.DataFrame,
         "kelly": bets.get("kelly", pd.Series([0.0] * len(bets))).astype(float),
         "computed_at": clock.now(),
     })[BET_COLUMNS]
+    if len(ex):
+        payload = pd.concat([payload, ex], ignore_index=True)
     wh.insert_frame("bet_candidate", canonicalize_frame(payload))
     return len(payload)
 

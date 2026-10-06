@@ -129,6 +129,8 @@ class OpsConfig:
     # 単勝・複勝の EV の高い方を1点（2026-09-27）。複勝モデルを持つリリースだけに効く。
     # 値の根拠は learning/scripts/deployed_rule_backtest.py。
     strategy: "StrategyConfig | None" = None
+    # 3連単「1番人気1着固定流し」（2026-10-06）。未設定・enabled=false なら None
+    trifecta: dict | None = None
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "OpsConfig":
@@ -158,6 +160,9 @@ class OpsConfig:
             max_bytes_billed=int(raw["gcp"]["max_bytes_billed"]),
             raw=raw,
             strategy=StrategyConfig.from_raw(raw.get("strategy")),
+            trifecta=(raw.get("exotic", {}).get("trifecta_fav_axis")
+                      if raw.get("exotic", {}).get("trifecta_fav_axis", {}).get("enabled")
+                      else None),
         )
 
 

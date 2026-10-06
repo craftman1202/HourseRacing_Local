@@ -609,7 +609,8 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
         return InferenceOutcome(race_id, "ok", res.frame, pd.DataFrame(),
                                 f"{svc.state.describe()}: 候補・配信なし")
 
-    write_bet_candidates(svc.wh, race_id, res.frame, bundle.manifest.model_id, day, svc.clock)
+    write_bet_candidates(svc.wh, race_id, res.frame, bundle.manifest.model_id, day, svc.clock,
+                         exotic=getattr(res, "exotic", None))
     candidates = res.bet_candidates(svc.cfg.discord_min_ev)
 
     if svc.state.can_deliver() and svc.sender is not None:
@@ -638,6 +639,7 @@ def _deliver(svc: Services, race_id: str, row: pd.Series, res, day: date,
         distance=int(row.get("distance", 0)), start_ts=to_utc(row["start_ts"]),
         now=svc.clock.now(), model_release=manifest.model_id,
         track_used=res.track_used, candidates=res.frame, horse_names=horse_names,
+        exotic=getattr(res, "exotic", None),
         day_budget_remaining=day_budget_remaining(svc.wh, day, svc.cfg.max_bet_per_day),
         min_ev=svc.cfg.discord_min_ev)
     if embed is None:
