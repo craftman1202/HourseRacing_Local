@@ -38,8 +38,11 @@ FAMILY = os.environ.get("PLACE_FAMILY", "flat")
 # *_dev_{resid,reg,pop}: 単勝確率に「人気との乖離」モデル（scripts/deviation_models.py）の出力、
 # 複勝確率に人気派生系統の複勝モデルを使う組み合わせ。dev_pop は人気だけの単勝確率（対照）。
 _DEV = {f"{fam}_dev_{t}": (fam, t) for fam in ("flat", "banei") for t in ("resid", "reg", "pop")}
+_CAT = {"flat_pop_cat": "artifacts/pop_cat/oos_predictions.parquet",
+        "flat_cat_dev_reg": "artifacts/dev_flat_pop_cat/oos_win_reg.parquet",
+        "flat_cat_dev_pop": "artifacts/dev_flat_pop_cat/oos_win_pop.parquet"}
 if FAMILY not in ("flat", "banei", "flat_pop", "banei_pop", "flat_pop_hpo", "banei_pop_hpo",
-                  *_DEV):
+                  *_DEV, *_CAT):
     raise ValueError(f"PLACE_FAMILY が未知です（受領: {FAMILY!r}）")
 
 _PATHS = {
@@ -59,6 +62,9 @@ _PATHS = {
     "banei_pop_hpo": dict(out="artifacts/place_banei_pop_hpo",
                           win_oos_pred="artifacts/banei_pop_hpo/oos_predictions.parquet",
                           min_dev_bets=30),
+    **{k: dict(out=f"artifacts/{k}" if k != "flat_pop_cat" else "artifacts/place_pop_cat",
+               win_oos_pred=v, place_pred="artifacts/place_pop_cat/oos_place_predictions.parquet",
+               min_dev_bets=300) for k, v in _CAT.items()},
     **{k: dict(out=f"artifacts/{k}",
                win_oos_pred=f"artifacts/dev_{fam}_pop/oos_win_{t}.parquet",
                place_pred=f"artifacts/place_{'pop' if fam == 'flat' else 'banei_pop'}"

@@ -18,7 +18,7 @@ from ..config import FeatureConfig
 from ..transform.prerace import (
     ASOF_RACE_WHITELIST, assert_no_market_info, assert_prerace,
 )
-from . import banei, declared
+from . import banei, categorical, declared
 from .banei import BANEI_FEATURES
 from .declared import DECLARED_FEATURES
 from .shrinkage import sql_shrink, sql_wilson_lower
@@ -73,10 +73,11 @@ def asof_features(cfg: FeatureConfig | None = None) -> tuple[str, ...]:
     乗るので、ここが唯一の定義点であることが重要（SK-03）。
     """
     pop = POPULARITY_FEATURES if getattr(cfg, "with_popularity", False) else ()
+    cat = categorical.CATEGORICAL_FEATURES if getattr(cfg, "with_categorical", False) else ()
     if cfg is None or getattr(cfg, "variant", "flat") != "banei":
-        return ASOF_FEATURES + pop
+        return ASOF_FEATURES + pop + cat
     kept = tuple(c for c in ASOF_FEATURES if c not in BANEI_DROPPED)
-    return kept + BANEI_FEATURES + pop
+    return kept + BANEI_FEATURES + pop + cat
 
 
 # 全順序。start_ts だけでは同着ならぬ「同時刻の別場」で並びが決まらず、
@@ -421,6 +422,15 @@ def build(
     if empty:
         log.warning("全行 NaN の申告値特徴量があります（列は残します）: %s", empty)
 
+    if cfg.with_categorical:
+        from ..transform.keys import TrackMaster
+
+        names = {code: name for name, code in TrackMaster().mapping.items()}
+        cat = categorical.build(entry, race, names).set_index(["race_id", "horse_no"])
+        idx = pd.MultiIndex.from_arrays([out["race_id"], out["horse_no"]])
+        for c in categorical.CATEGORICAL_FEATURES:
+            out[c] = cat[c].reindex(idx).to_numpy()
+
     if cfg.with_popularity:
         if "popularity" not in entry.columns:
             raise ValueError("with_popularity の系統ですが entry に popularity 列がありません")
@@ -453,7 +463,7 @@ def finalize(df: pd.DataFrame) -> pd.DataFrame:
     # 特徴量の dtype を float64 に固定する。COUNT 由来の列は int64、距離は入力の
     # 型次第で int/float が入れ替わり、学習時と推論時で feature_spec が一致しなく
     # なる（実データで distance と d_*_starts の5列が食い違った）。値は変わらない。
-    for c in ASOF_FEATURES + POPULARITY_FEATURES:
+    for c in ASOF_FEATURES + POPULARITY_FEATURES + categorical.CATEGORICAL_FEATURES:
         if c in out.columns:
             out[c] = pd.to_numeric(out[c], errors="coerce").astype("float64")
     for c in out.select_dtypes("float").columns:

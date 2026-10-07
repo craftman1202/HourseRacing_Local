@@ -80,6 +80,9 @@ class FeatureConfig:
     # トラックA の「市場と独立」という前提を崩すので、既存の conf / conf_banei では
     # 必ず False。conf_pop / conf_banei_pop だけが True にし、gold も別ディレクトリに出す。
     with_popularity: bool = False
+    # カテゴリ変数（クラス・競走条件・性・負担重量・所属・馬場など）を足す派生系統
+    # （2026-10-07、features/categorical.py）。既存の conf では必ず False。
+    with_categorical: bool = False
 
 
 def _d(v: str) -> date:
@@ -116,6 +119,7 @@ def feature_config(conf_dir: str | None = None) -> FeatureConfig:
         include_baba_codes=raw.get("include", {}).get("baba_codes", []),
         variant=variant,
         with_popularity=bool(raw.get("with_popularity", False)),
+        with_categorical=bool(raw.get("with_categorical", False)),
     )
 
 

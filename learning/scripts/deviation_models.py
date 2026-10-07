@@ -60,14 +60,19 @@ from nar.train.pipeline import apply_stats, trainable  # noqa: E402
 log = logging.getLogger("deviation_models")
 
 FAMILY = os.environ.get("PLACE_FAMILY", "flat_pop")
-_CONF = {"flat_pop": "conf_pop", "banei_pop": "conf_banei_pop"}
+_CONF = {"flat_pop": "conf_pop", "banei_pop": "conf_banei_pop", "flat_pop_cat": "conf_pop_cat"}
 if FAMILY not in _CONF:
     raise ValueError(f"PLACE_FAMILY は {tuple(_CONF)} のいずれか（受領: {FAMILY!r}）")
 if os.environ.get("NAR_CONF_DIR") != _CONF[FAMILY]:
     raise RuntimeError(f"PLACE_FAMILY={FAMILY} には NAR_CONF_DIR={_CONF[FAMILY]} が必要です")
 _P = {
     "flat_pop": dict(gold="data_real/gold/features_noodds_pop/features.parquet",
-                     win_eval="artifacts/final_pop_eval", oos_log="artifacts/oos_access.log"),
+                     win_eval="artifacts/final_pop_eval", oos_log="artifacts/oos_access.log",
+                     sel="artifacts/pop/selected_features.csv"),
+    # 人気 + カテゴリ変数の系統（2026-10-07）
+    "flat_pop_cat": dict(gold="data_real/gold/features_noodds_pop_cat/features.parquet",
+                         win_eval="artifacts/pop_cat/final_eval", oos_log="artifacts/oos_access.log",
+                         sel="artifacts/pop_cat/selected_features.csv"),
     "banei_pop": dict(gold="data_real/gold/features_noodds_banei_pop/features.parquet",
                       win_eval="artifacts/final_banei_pop_eval",
                       oos_log="artifacts/banei/oos_access.log"),
@@ -412,7 +417,7 @@ def cmd_walkforward(args) -> int:
     from nar.train.pipeline import fit_stats
 
     ccfg = cv_config()
-    sel = pd.read_csv(ROOT / "artifacts/pop/selected_features.csv")
+    sel = pd.read_csv(ROOT / _P["sel"])
     sel_by_fold = {int(r["fold"]): [c.strip() for c in r["selected"].split(",")]
                    for _, r in sel.iterrows()}
     cols_all = sorted({c for v in sel_by_fold.values() for c in v} | {"market_pop_rank"})

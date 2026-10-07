@@ -327,8 +327,10 @@ def _gold_subdir(cfg) -> str:
     sub = "features_odds" if cfg.track == "B" else "features_noodds"
     if getattr(cfg, "variant", "flat") != "flat":
         sub = f"{sub}_{cfg.variant}"
-    # 人気順を足した系統は別 gold。既存の gold（配布モデルの学習元）を上書きしない
-    return f"{sub}_pop" if getattr(cfg, "with_popularity", False) else sub
+    # 人気順・カテゴリ変数を足した系統は別 gold。既存の gold（配布モデルの学習元）を上書きしない
+    if getattr(cfg, "with_popularity", False):
+        sub = f"{sub}_pop"
+    return f"{sub}_cat" if getattr(cfg, "with_categorical", False) else sub
 
 
 def cmd_features(args: argparse.Namespace) -> int:

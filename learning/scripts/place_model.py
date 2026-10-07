@@ -67,7 +67,8 @@ FAMILY = os.environ.get("PLACE_FAMILY", "flat")
 # 系統 → 必要な NAR_CONF_DIR（None = 既定の conf）。*_pop は人気順を足した派生系統。
 _CONF_FOR = {"flat": None, "banei": "conf_banei",
              "flat_pop": "conf_pop", "banei_pop": "conf_banei_pop",
-             "flat_pop_hpo": "conf_pop", "banei_pop_hpo": "conf_banei_pop"}
+             "flat_pop_hpo": "conf_pop", "banei_pop_hpo": "conf_banei_pop",
+             "flat_pop_cat": "conf_pop_cat"}
 if FAMILY not in _CONF_FOR:
     raise ValueError(f"PLACE_FAMILY は {tuple(_CONF_FOR)} のいずれか（受領: {FAMILY!r}）")
 if os.environ.get("NAR_CONF_DIR") != _CONF_FOR[FAMILY] and _CONF_FOR[FAMILY] is not None:
@@ -97,6 +98,12 @@ _PATHS = {
                       oos_log="artifacts/banei/oos_access.log",
                       win_oos_pred="artifacts/banei_pop/oos_predictions.parquet",
                       default_win_release=None),
+    # 人気 + カテゴリ変数の系統（2026-10-07）
+    "flat_pop_cat": dict(gold="data_real/gold/features_noodds_pop_cat/features.parquet",
+                         win_eval="artifacts/pop_cat/final_eval", out="artifacts/place_pop_cat",
+                         oos_log="artifacts/oos_access.log",
+                         win_oos_pred="artifacts/pop_cat/oos_predictions.parquet",
+                         default_win_release=None),
     # HPO（中）付きの人気派生系統。複勝モデルにも単勝側の HPO 値（最終 fold の最良）を使う
     "flat_pop_hpo": dict(gold="data_real/gold/features_noodds_pop/features.parquet",
                          win_eval="artifacts/pop_hpo/final_eval", out="artifacts/place_pop_hpo",
