@@ -75,16 +75,36 @@ strategy:
   budget_place_per_race: 10000   # 複勝の1レース予算
   place_odds_alpha: 0.257        # 複勝の想定払戻 = 下限 + α(上限 − 下限)。実払戻の平均位置
 
-# 3連単「1番人気1着固定流し」（2026-10-06）。人気だけの単勝確率（人気×頭数の勝率表、リリースの
-# dev_meta.json）で 1番人気 ≥ min_p のレースに、1着=1番人気・2・3着=人気2〜(n_partners+1)位の
-# 順序付き全組を1点 unit_yen 円。検証: 5-fold 平均 ROI 1.137 / OOS 1.012 [0.84, 1.20]、的中 約53%。
-# 選ばれるのは事実上 5〜6 頭立て（learning/src/nar/eval/exotic.py）。乖離モデルを持つ平地リリースだけ。
+# 3連単「1番人気1着固定流し」（2026-10-06）。2026-10-13 に停止。
+# 検証の予測行が完走馬だけで作られていて、競走中止の馬（レース後にしか分からない）が買い目から
+# 外れていた。中止馬を戻すと 5-fold 平均 1.137 → 0.653、OOS 1.012 → 0.691
+# （learning/scripts/roi_search.py の DNF=1、artifacts/roi_search_dnf2）。下の recommend が優先する。
 exotic:
   trifecta_fav_axis:
-    enabled: true
+    enabled: false
     min_p: 0.5
     n_partners: 8
     unit_yen: 100
+
+# 全券種の推奨買い目（2026-10-13）。組み方は learning/src/nar/eval/recommend.py の単一実装。
+# 確率 π = softmax((1−λ)·log p_model + λ·log p_pop)（p_model は乖離回帰モデル、p_pop は下の勝率表）、
+# 軸 = π の1位、軸の π ≥ min_p のレースだけ。値は中止馬を戻した検証で、券種ごとにセグメントで
+# 絞らない候補の 5-fold（2019〜2023）平均 ROI 最大を選び、OOS（2024-02〜）を1回測ったもの
+# （artifacts/roi_search_dnf2/candidates.csv）。どの券種も 1 未満なので全部 stake: false（参考表示）。
+# 単勝・複勝の賭け金は上の strategy（EV の高い方を1点）のまま。
+recommend:
+  enabled: true
+  unit_yen: 100
+  pop_table: recommend_pop_table.json
+  rules:
+    - {structure: "ワイド 1点", lam: 0.0, min_p: 0.5, note: "検証ROI 5fold 0.81 / OOS 0.82"}
+    - {structure: "馬連 1点", lam: 0.75, min_p: 0.5, note: "検証ROI 5fold 0.81 / OOS 0.83"}
+    - {structure: "馬単 裏表", lam: 0.75, min_p: 0.5, note: "検証ROI 5fold 0.79 / OOS 0.80"}
+    - {structure: "3連複 軸2頭流し 相手4頭", lam: 0.0, min_p: 0.5, note: "検証ROI 5fold 0.75 / OOS 0.75"}
+    - {structure: "3連単 1・2着固定 3着2頭", lam: 0.75, min_p: 0.5, note: "検証ROI 5fold 0.73 / OOS 0.81"}
+    # 枠は軸の確率をどう絞っても ROI 0.81 前後で変わらず、0.5 以上はほぼ出ない。単独では通知しない
+    - {structure: "枠連 1点", lam: 0.25, min_p: 0.3, standalone: false, note: "検証ROI 5fold 0.81 / OOS 0.82"}
+    - {structure: "枠単 1点", lam: 0.25, min_p: 0.3, standalone: false, note: "検証ROI 5fold 0.83 / OOS 0.82"}
 
 skew:
   # 日内更新に起因する差分が許容される列。これ以外の乖離は即 Blocker（SK-03）

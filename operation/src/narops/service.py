@@ -581,7 +581,11 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
             place=bundle.place, place_odds=place_odds, strategy=svc.cfg.strategy,
             deviation=bundle.deviation,
             popularity=(feats.frame["horse_no"].map(pop_by_horse).to_numpy(dtype=float)
-                        if bundle.deviation is not None else None))
+                        if bundle.deviation is not None else None),
+            # 枠連・枠単の推奨に使う枠番（出馬表から。無ければ枠の券種は出さない）
+            waku=(pd.to_numeric(feats.frame["horse_no"].map(dict(zip(card["horse_no"], card["waku"]))),
+                                errors="coerce").to_numpy(dtype=float)
+                  if "waku" in card.columns else None))
     except DataNotYetPublished as exc:
         # 2026-09-21 診断用: 032026092104 でリトライが積まれず直接 Critical に
         # 落ちた原因が、テスト環境（インメモリ TaskQueue）の再現では再現しない。

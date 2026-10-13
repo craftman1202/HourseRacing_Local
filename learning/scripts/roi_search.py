@@ -31,7 +31,13 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from nar.eval.place import race_log_softmax  # noqa: E402
 
-OUT = ROOT / "artifacts/roi_search"
+import os  # noqa: E402
+
+# DNF=1: 競走中止・失格の馬（走ったのに予測行が無い）をレースに戻す版（2026-10-13）。
+# 予測行は完走馬だけで作られており、レース後にしか分からない「誰が完走したか」が
+# 買い目から中止馬を除く形で漏れていた（scripts/bet_selector_diag.py で発見）。
+DNF = os.environ.get("DNF") == "1"
+OUT = ROOT / ("artifacts/roi_search_dnf2" if DNF else "artifacts/roi_search")
 DEV = ROOT / "artifacts/dev_flat_pop"
 TOP = 9
 LAMBDAS = (0.0, 0.25, 0.5, 0.75, 1.0)
@@ -42,46 +48,8 @@ BET_JP = {"win": "単勝", "place": "複勝", "wide": "ワイド", "quinella": "
 
 
 # ------------------------------------------------------------------ 買い方（順位の組）
-def _p(*xs):
-    return [tuple(x) for x in xs]
-
-
-def structures() -> dict[str, tuple[str, list[tuple[int, ...]]]]:
-    """名前 → (券種, 確率順位（0始まり）の組のリスト)。頭数が足りない組は使う側で落とす。"""
-    S: dict[str, tuple[str, list]] = {}
-    S["単勝 1位"] = ("win", [(0,)])
-    S["単勝 1・2位"] = ("win", [(0,), (1,)])
-    S["複勝 1位"] = ("place", [(0,)])
-    S["複勝 1・2位"] = ("place", [(0,), (1,)])
-    S["複勝 2位"] = ("place", [(1,)])
-    for bt, jp in (("wide", "ワイド"), ("quinella", "馬連")):
-        S[f"{jp} 1点"] = (bt, [(0, 1)])
-        for n in (2, 4, 8):
-            S[f"{jp} 軸1頭流し 相手{n}頭"] = (bt, [(0, j) for j in range(1, n + 1)])
-        S[f"{jp} BOX3頭"] = (bt, list(itertools.combinations(range(3), 2)))
-        S[f"{jp} BOX4頭"] = (bt, list(itertools.combinations(range(4), 2)))
-    S["馬単 1点"] = ("exacta", [(0, 1)])
-    S["馬単 裏表"] = ("exacta", [(0, 1), (1, 0)])
-    for n in (2, 4, 8):
-        S[f"馬単 1着固定流し 相手{n}頭"] = ("exacta", [(0, j) for j in range(1, n + 1)])
-    for n in (2, 4, 7):
-        S[f"3連複 軸2頭流し 相手{n}頭"] = ("trio", [(0, 1, k) for k in range(2, n + 2)])
-    for n in (3, 5, 8):
-        S[f"3連複 軸1頭流し 相手{n}頭"] = ("trio", list((0,) + c for c in itertools.combinations(range(1, n + 1), 2)))
-    for n in (3, 4, 5):
-        S[f"3連複 BOX{n}頭"] = ("trio", list(itertools.combinations(range(n), 3)))
-    for n in (3, 5, 8):
-        S[f"3連単 1着固定流し 相手{n}頭"] = ("trifecta", [(0,) + c for c in itertools.permutations(range(1, n + 1), 2)])
-    for n in (2, 5):
-        S[f"3連単 1・2着固定 3着{n}頭"] = ("trifecta", [(0, 1, k) for k in range(2, n + 2)])
-    S["3連単 フォーメーション 1位/上位3/上位7"] = ("trifecta", [(0, j, k) for j in (1, 2) for k in range(1, 7) if k != j])
-    S["3連単 BOX3頭"] = ("trifecta", list(itertools.permutations(range(3), 3)))
-    S["枠連 1点"] = ("bracket_q", [(0, 1)])
-    S["枠連 軸流し 相手3頭"] = ("bracket_q", [(0, j) for j in (1, 2, 3)])
-    S["枠単 1点"] = ("bracket_e", [(0, 1)])
-    S["枠単 1着固定流し 相手3頭"] = ("bracket_e", [(0, j) for j in (1, 2, 3)])
-    return S
-
+# 定義は運用と共有（nar.eval.recommend、2026-10-13 に移設。内容は同じ）
+from nar.eval.recommend import structures  # noqa: E402,F401
 
 ORDERED = {"exacta", "trifecta", "bracket_e"}
 
@@ -98,7 +66,68 @@ def load_probs() -> pd.DataFrame:
     w = w[w["race_id"].str[:2].astype(int) > 4]
     e = pd.read_parquet(ROOT / "data_real/silver/entry.parquet", columns=["race_id", "horse_no", "waku"])
     e["horse_no"] = e["horse_no"].astype(int)
-    return w.merge(e, on=["race_id", "horse_no"], how="left")
+    w = w.merge(e, on=["race_id", "horse_no"], how="left")
+    return add_dnf(w) if DNF else w
+
+
+FOLD_START = {1: "2019-02-01", 2: "2020-02-01", 3: "2021-02-01", 4: "2022-02-01", 5: "2023-02-01",
+              0: "2024-02-01"}
+POP_SMOOTH, MAX_RANK = 20.0, 16
+
+
+def starters() -> pd.DataFrame:
+    """走った馬（完走 + 競走中止 + 失格）。取消・除外は人気が無く、馬券は返還なので含めない。"""
+    e = pd.read_parquet(ROOT / "data_real/silver/entry.parquet",
+                        columns=["race_id", "race_date", "horse_no", "waku", "finish_pos", "is_win",
+                                 "popularity", "margin"])
+    e = e[e["finish_pos"].notna() | e["margin"].isin(["競走中止", "失格"])].copy()
+    e["horse_no"] = e["horse_no"].astype(int)
+    e["race_date"] = pd.to_datetime(e["race_date"])
+    e["n"] = e.groupby("race_id")["horse_no"].transform("size")
+    e["is_win"] = e["is_win"].fillna(0)
+    return e
+
+
+def pop_table_before(st: pd.DataFrame, start: str) -> dict:
+    """人気 × 走った頭数の勝率表（start より前だけ）。deviation_models.fit_pop_table と同じ収縮。"""
+    d = st[st["race_date"] < pd.Timestamp(start)]
+    r = d["popularity"].fillna(d["n"]).clip(1, MAX_RANK).astype(int)
+    g = d.assign(r=r).groupby(["r", "n"])["is_win"].agg(["sum", "count"]).reset_index()
+    p = (g["sum"] + POP_SMOOTH / g["n"]) / (g["count"] + POP_SMOOTH)
+    return {f"{int(a)}_{int(b)}": float(v) for a, b, v in zip(g["r"], g["n"], p)}
+
+
+def add_dnf(w: pd.DataFrame) -> pd.DataFrame:
+    """中止・失格馬を戻し、人気の勝率 p_pop を走った頭数で引き直す。
+
+    中止馬の p_reg（本番モデル）は無い（学習・予測とも完走馬だけ）。近似として中止馬には
+    その馬の p_pop を与え、完走馬の p_reg は比を保ったまま残りの確率を分け合う。
+    """
+    from nar.eval.deviation import log_p_pop
+
+    st_all = starters()                       # 勝率表は全期間の過去分から（fold ごとに開始日より前）
+    st = st_all[st_all["race_id"].isin(set(w["race_id"]))]
+    meta = w.drop_duplicates("race_id").set_index("race_id")[["fold", "race_date"]]
+    add = st.merge(w[["race_id", "horse_no"]].assign(_in=1), on=["race_id", "horse_no"], how="left")
+    add = add[add["_in"].isna()]
+    add = pd.DataFrame({"race_id": add["race_id"], "horse_no": add["horse_no"],
+                        "race_date": add["race_id"].map(meta["race_date"]),
+                        "fold": add["race_id"].map(meta["fold"]), "p_reg": np.nan,
+                        "waku": add["waku"]})
+    w = pd.concat([w.drop(columns=["p_pop"]), add], ignore_index=True)
+    w = w.merge(st[["race_id", "horse_no", "popularity", "n"]], on=["race_id", "horse_no"], how="left")
+    w["p_pop"] = np.nan
+    for f, start in FOLD_START.items():
+        m = (w["fold"] == f).to_numpy()
+        tab = pop_table_before(st_all, start)
+        w.loc[m, "p_pop"] = np.exp(log_p_pop(w.loc[m, "popularity"].to_numpy(dtype=float),
+                                             w.loc[m, "n"].to_numpy(), w.loc[m, "race_id"].to_numpy(), tab))
+    miss = w["p_reg"].isna()
+    w.loc[miss, "p_reg"] = w.loc[miss, "p_pop"]
+    dnf_mass = w["p_reg"].where(miss, 0.0).groupby(w["race_id"]).transform("sum")
+    w.loc[~miss, "p_reg"] = w.loc[~miss, "p_reg"] * (1 - dnf_mass[~miss])
+    w["dnf"] = miss.astype(int)
+    return w.drop(columns=["popularity", "n"])
 
 
 def race_attrs(win: pd.DataFrame) -> pd.DataFrame:

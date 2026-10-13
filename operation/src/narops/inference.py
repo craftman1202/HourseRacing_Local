@@ -168,6 +168,7 @@ def run_inference(
     strategy: Any = None,
     deviation: Any = None,
     popularity: np.ndarray | None = None,
+    waku: np.ndarray | None = None,
 ) -> InferenceResult:
     """1レース分の推論。
 
@@ -194,8 +195,15 @@ def run_inference(
         res = _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds,
                       pool_model, baba_code, class_level, day_budget_remaining, takeout,
                       place, place_odds, strategy)
-        res.exotic = _trifecta(features, pop, deviation.meta.get("pop_table"), cfg,
-                               day_budget_remaining, int(res.frame["stake_yen"].sum()), res.notes)
+        if getattr(cfg, "recommend", ()):
+            res.exotic = _recommend(features, p, pop, waku,
+                                    cfg.recommend_pop_table or deviation.meta.get("pop_table"), cfg,
+                                    day_budget_remaining, int(res.frame["stake_yen"].sum()),
+                                    res.notes)
+        else:
+            res.exotic = _trifecta(features, pop, deviation.meta.get("pop_table"), cfg,
+                                   day_budget_remaining, int(res.frame["stake_yen"].sum()),
+                                   res.notes)
         return res
 
     per_model: dict[str, np.ndarray] = {}
@@ -316,6 +324,36 @@ def _trifecta(features: pd.DataFrame, pop: np.ndarray, pop_table: dict | None, c
                          "を超えるため見送り")
             return []
     return [plan]
+
+
+def _recommend(features: pd.DataFrame, p_model: np.ndarray, pop: np.ndarray,
+               waku: np.ndarray | None, pop_table: dict | None, cfg: OpsConfig,
+               day_budget_remaining: int | None, used_yen: int, notes: list[str]) -> list:
+    """全券種の推奨買い目（組み方は nar.eval.recommend の単一実装）。
+
+    stake=True の規則だけが賭け金（日次上限に数える）。1日の残枠に全点が収まらない
+    ときはその規則を見送る（点数を削ると検証した買い方と別物になる）。stake=False は
+    参考表示で、残枠に関係なく載せる。
+    """
+    if not pop_table:
+        return []
+    from .shared import recommend
+
+    plans = recommend(features["horse_no"].to_numpy(), waku, p_model, pop, pop_table,
+                      list(cfg.recommend))
+    if day_budget_remaining is None:
+        return plans
+    left = min(day_budget_remaining, cfg.max_bet_per_day) - used_yen
+    kept = []
+    for pl in plans:
+        if pl.stake:
+            if pl.stake_yen > left:
+                notes.append(f"{pl.bet_type} {len(pl.tickets)}点（¥{pl.stake_yen:,}）は本日残枠 "
+                             f"¥{max(left, 0):,} を超えるため見送り")
+                continue
+            left -= pl.stake_yen
+        kept.append(pl)
+    return kept
 
 
 def _economics(out: pd.DataFrame, cfg: OpsConfig, pool_model: PoolSizeModel | None,

@@ -1,5 +1,8 @@
 """3連単「1番人気1着固定流し」の運用側（2026-10-06）。
 
+2026-10-13 に ops.yaml では停止（中止馬の漏れ。conf/ops.yaml の exotic 参照）。経路は残すので、
+ここでは規則を明示的に有効にした設定で動作を固定する。
+
 判定の単一実装は学習側 nar.eval.exotic（learning/tests/test_exotic.py）。
 ここでは推論・記録・通知・1日の残枠の扱いを固定する。
 """
@@ -35,7 +38,14 @@ def _dev(table):
                                 "reg_calibration": {"ridge": {"gamma": 0.1, "temperature": 1.0}}})
 
 
+def _old_rule(cfg):
+    from dataclasses import replace
+    return replace(cfg, trifecta={"enabled": True, "min_p": 0.5, "n_partners": 8, "unit_yen": 100},
+                   recommend=())
+
+
 def _infer(release_dir, cfg, table, odds, budget=50_000):
+    cfg = _old_rule(cfg)
     n = len(odds)
     m = Manifest.read(Path(release_dir) / "manifest.json")
     feats = pd.DataFrame({"horse_no": np.arange(1, n + 1), "f1": np.zeros(n)})
@@ -47,9 +57,10 @@ def _infer(release_dir, cfg, table, odds, budget=50_000):
                          day_budget_remaining=budget)
 
 
-def test_ops_yaml_enables_the_validated_rule():
-    t = OpsConfig.load().trifecta
-    assert t and (t["min_p"], t["n_partners"], t["unit_yen"]) == (0.5, 8, 100)
+def test_ops_yaml_disables_the_leaky_rule_in_favour_of_recommend():
+    c = OpsConfig.load()
+    assert c.trifecta is None
+    assert c.recommend and not any(r.stake for r in c.recommend)
 
 
 def test_small_field_with_a_strong_favourite_buys_the_full_spread(release_dir, cfg):

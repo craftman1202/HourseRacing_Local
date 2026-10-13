@@ -30,6 +30,8 @@ from nar.eval.deviation import (  # noqa: E402
     log_p_pop, popularity_from_odds, reg_probability,
 )
 from nar.eval.exotic import TrifectaPlan, trifecta_fav_axis  # noqa: E402
+from nar.eval.recommend import BetPlan, Rule, recommend  # noqa: E402
+from nar.eval.recommend import structures as recommend_structures  # noqa: E402
 from nar.eval.place import (  # noqa: E402
     estimated_place_odds, max_ev_bets, place_probability, place_slots,
 )
@@ -57,6 +59,7 @@ __all__ = [
     "estimated_place_odds", "max_ev_bets", "place_probability", "place_slots",
     "log_p_pop", "popularity_from_odds", "reg_probability",
     "TrifectaPlan", "trifecta_fav_axis",
+    "BetPlan", "Rule", "recommend", "recommend_structures",
     "learning_package_root", "learning_conf_dir", "feature_config_for",
     "track_names",
 ]

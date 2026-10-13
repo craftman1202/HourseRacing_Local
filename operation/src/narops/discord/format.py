@@ -166,12 +166,17 @@ def _race_embed_max_ev(
     推奨欄は券種（単/複）と金額。金額は bet_candidate の stake_yen と一致させる（DC-05）。
     `exotic`（3連単の流し、2026-10-06）があれば買い方と全点の合計額を別欄に載せる。
     単勝・複勝の候補が無くても、3連単を買うレースは通知する。
+    2026-10-13: `exotic` は全券種の推奨（shared.BetPlan）も受ける。stake=False は「参考」欄に
+    載せ、買い目合計・残枠には数えない。
     """
     exotic = list(exotic or [])
     ev_w = candidates["ev_adjusted"]
     ev_p = candidates["ev_place"]
     shown = candidates[(ev_w >= min_ev) | (ev_p >= min_ev) | (candidates["stake_yen"] > 0)]
-    if shown.empty and not exotic:
+    # 単独では通知しない参考（standalone=False、枠の券種）だけのレースは通知しない
+    triggers = [pl for pl in exotic
+                if getattr(pl, "stake", True) or getattr(pl, "standalone", True)]
+    if shown.empty and not triggers:
         return None
 
     names = horse_names or {}
@@ -192,16 +197,22 @@ def _race_embed_max_ev(
         lines = []
 
     bets = shown[shown["stake_yen"] > 0]
-    ex_total = sum(int(pl.stake_yen) for pl in exotic)
-    for pl in exotic:
-        lines.append(_trifecta_lines(pl, names))
+    staked = [pl for pl in exotic if getattr(pl, "stake", True)]
+    ref = [pl for pl in exotic if not getattr(pl, "stake", True)]
+    ex_total = sum(int(pl.stake_yen) for pl in staked)
+    for pl in staked:
+        lines.append(_plan_lines(pl, names))
+    if ref:
+        lines.append("📋 **参考（各券種の推奨。賭け金には数えない）**")
+        for pl in ref:
+            lines.append(_plan_lines(pl, names))
     tail = [f"買い目合計 {fmt_yen(int(bets['stake_yen'].sum()) + ex_total)}"]
     for t in ("単勝", "複勝"):
         part = bets[bets.get("bet_type") == t] if "bet_type" in bets.columns else bets.iloc[0:0]
         if len(part):
             tail.append(f"{t} {fmt_yen(int(part['stake_yen'].sum()))}")
-    if ex_total:
-        tail.append(f"3連単 {fmt_yen(ex_total)}")
+    for pl in staked:
+        tail.append(f"{getattr(pl, 'bet_type', '3連単')} {fmt_yen(int(pl.stake_yen))}")
     if day_budget_remaining is not None:
         tail.append(f"本日残枠 {fmt_yen(day_budget_remaining)}")
     lines.append("　".join(tail))
@@ -216,9 +227,30 @@ def _race_embed_max_ev(
         title=f"🏇 {track_name} {race_no}R  {class_name} {distance}m  "
               f"発走 {jst:%H:%M} (残り{remaining:.0f}分)",
         description="\n".join(lines),
-        color=COLOR_GREEN if len(bets) or exotic else ev_color(best),
+        color=COLOR_GREEN if len(bets) or staked else ev_color(best),
         footer=f"{model_release} / トラック{track_used}",
     )
+
+
+def _plan_lines(plan, names: dict) -> str:
+    """推奨買い目1つ。3連単の 1番人気1着固定流し（TrifectaPlan）は従来の書式のまま。"""
+    if not hasattr(plan, "structure"):
+        return _trifecta_lines(plan, names)
+    axis = f"{plan.axis}番 {names.get(plan.axis, '')}".rstrip()
+    sep = "→" if plan.bet_type in ("馬単", "3連単", "枠単") else "-"
+    if len(plan.tickets) <= 6:
+        body = "  ".join(sep.join(str(h) for h in t) for t in plan.tickets)
+    else:
+        body = f"軸 {axis} → 相手 {','.join(str(h) for h in plan.partners[:8])}"
+    head = f"🎯 **{plan.structure}**"
+    if plan.bet_type in ("枠連", "枠単"):
+        head += f"（軸馬 {axis} の枠）"
+    elif len(plan.tickets) <= 6:
+        head += f"（軸 {axis}）"
+    note = f"　{plan.note}" if plan.note else ""
+    return (f"{head}  {body}\n"
+            f"　{len(plan.tickets)}点 × ¥{plan.unit_yen:,} = **¥{plan.stake_yen:,}**"
+            f"（軸の確率 {plan.p_axis * 100:.0f}%）{note}")
 
 
 def _trifecta_lines(plan, names: dict) -> str:

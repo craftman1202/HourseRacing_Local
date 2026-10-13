@@ -92,11 +92,14 @@ def write_bet_candidates(wh: Warehouse, race_id: str, frame: pd.DataFrame,
     bets = frame[frame["stake_yen"] > 0]
     wh.execute("DELETE FROM bet_candidate WHERE race_date = ? AND race_id = ? "
                "AND model_release = ?", [race_date, race_id, model_release])
+    # 全券種の推奨（shared.BetPlan、2026-10-13）は stake=True のものだけを記録する。
+    # stake=False は通知の参考表示で、日次上限にも数えない。
     ex = pd.DataFrame([{
         "race_id": race_id, "horse_no": int(pl.axis), "race_date": race_date,
-        "model_release": model_release, "bet_type": "3連単",
+        "model_release": model_release, "bet_type": getattr(pl, "bet_type", "3連単"),
         "stake_yen": int(pl.stake_yen), "ev": float("nan"), "ev_adjusted": float("nan"),
-        "kelly": 0.0, "computed_at": clock.now()} for pl in (exotic or [])],
+        "kelly": 0.0, "computed_at": clock.now()}
+        for pl in (exotic or []) if getattr(pl, "stake", True)],
         columns=BET_COLUMNS)
     if bets.empty:
         if len(ex):

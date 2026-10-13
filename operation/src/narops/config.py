@@ -131,6 +131,11 @@ class OpsConfig:
     strategy: "StrategyConfig | None" = None
     # 3連単「1番人気1着固定流し」（2026-10-06）。未設定・enabled=false なら None
     trifecta: dict | None = None
+    # 全券種の推奨買い目（2026-10-13、shared.Rule のリスト）。未設定・enabled=false なら空。
+    # 設定があれば上の trifecta より優先する（3連単の規則もこちらに含める）
+    recommend: tuple = ()
+    # 推奨買い目の λ 合成に使う人気×走った頭数の勝率表（conf/recommend_pop_table.json）
+    recommend_pop_table: dict | None = None
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "OpsConfig":
@@ -163,7 +168,35 @@ class OpsConfig:
             trifecta=(raw.get("exotic", {}).get("trifecta_fav_axis")
                       if raw.get("exotic", {}).get("trifecta_fav_axis", {}).get("enabled")
                       else None),
+            recommend=_recommend_rules(raw.get("recommend")),
+            recommend_pop_table=_recommend_table(raw.get("recommend")),
         )
+
+
+def _recommend_table(raw: dict | None) -> dict | None:
+    if not raw or not raw.get("enabled") or not raw.get("pop_table"):
+        return None
+    import json
+
+    return json.loads((CONF_DIR / raw["pop_table"]).read_text(encoding="utf-8"))["table"]
+
+
+def _recommend_rules(raw: dict | None) -> tuple:
+    if not raw or not raw.get("enabled"):
+        return ()
+    from .shared import Rule, recommend_structures
+
+    known = recommend_structures()
+    unit = int(raw.get("unit_yen", 100))
+    rules = []
+    for r in raw.get("rules", []):
+        if r["structure"] not in known:
+            raise ValueError(f"recommend: 未知の買い方 {r['structure']!r}")
+        rules.append(Rule(structure=r["structure"], lam=float(r["lam"]), min_p=float(r["min_p"]),
+                          unit_yen=int(r.get("unit_yen", unit)), stake=bool(r.get("stake", False)),
+                          note=str(r.get("note", "")),
+                          standalone=bool(r.get("standalone", True))))
+    return tuple(rules)
 
 
 @dataclass(frozen=True)
