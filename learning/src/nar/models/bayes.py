@@ -72,8 +72,11 @@ def build_arrays(df: pd.DataFrame, covariates: list[str], max_positions: int = 3
     max_positions で尤度に使う着順を打ち切る。地方の下位着順はノイズが大きく、
     全順位を使うと計算量だけ増えて事後分布がほとんど動かない。
     """
-    d = df.sort_values(["race_id", "horse_no"]).reset_index(drop=True)
-    d["_row"] = np.arange(len(d))
+    # row_index は**入力 df の行位置**を指す（flat_predictions が入力順で返すため）。
+    # 2026-10-13 まで並べ替え後の位置を入れていて、race_id 順に並んでいない入力
+    # （train と valid を連結したもの）では確率が別の馬に付いていた。
+    d = (df.assign(_row=np.arange(len(df))).sort_values(["race_id", "horse_no"], kind="stable")
+         .reset_index(drop=True))
     h_codes, _ = pd.factorize(d["horse_sk"])
     j_codes, _ = pd.factorize(d["jockey_sk"])
     s_codes, _ = pd.factorize(d["sire_sk"])
@@ -107,7 +110,7 @@ def build_arrays(df: pd.DataFrame, covariates: list[str], max_positions: int = 3
         if n_cov:
             z[r, :n] = zv[idx]
         mask[r, :n] = True
-        row_index[r, :n] = idx
+        row_index[r, :n] = d["_row"].to_numpy()[idx]
         race_ids[r] = rid
         rank = np.argsort(pos[idx], kind="stable")
         order[r, :n] = rank

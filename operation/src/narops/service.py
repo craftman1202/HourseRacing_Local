@@ -80,6 +80,8 @@ class ModelBundle:
     place: Any = None
     # 人気との乖離（回帰）モデル（runtime.DeviationModel）。あれば単勝確率はこちらで出す。
     deviation: Any = None
+    # 全券種の買い目の規則と払戻予測（runtime.BetBundle、2026-10-17）。あれば賭け金はこれで決める
+    bets: Any = None
 
     def is_loaded(self) -> bool:
         return self.manifest is not None and bool(self.models)
@@ -108,6 +110,7 @@ class Services:
     feature_config: Any = None
     place: Any = None
     deviation: Any = None
+    bets: Any = None
 
     # ばんえい用の配布物。未設定なら「ばんえいの推論はしない」を意味する。
     # 平地のモデルで代替はしない — 距離も回りも無い競技に、距離と回りの
@@ -160,7 +163,8 @@ class Services:
                     "平地モデルでは推論しません。")
             return self.banei
         return ModelBundle(self.manifest, self.models, self.standardizer,
-                           self.feature_config, self.pool_model, self.place, self.deviation)
+                           self.feature_config, self.pool_model, self.place, self.deviation,
+                           self.bets)
 
     def supports_banei(self) -> bool:
         return self.banei is not None and self.banei.is_loaded()
@@ -528,7 +532,7 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
     # レース条件は当日ページが正。race_schedule は距離もクラスも持たず、
     # 以前はここが既定値（distance=1200 / class_level=1）のまま推論していた。
     for key in ("distance", "class_level", "class_name", "prize_yen", "surface",
-                "turn", "baba_condition"):
+                "turn", "baba_condition", "race_name", "condition_name", "weather"):
         if key in card.columns and card[key].notna().any():
             row[key] = card[key].iloc[0]
 
@@ -581,7 +585,8 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
             place=bundle.place, place_odds=place_odds, strategy=svc.cfg.strategy,
             deviation=bundle.deviation,
             popularity=(feats.frame["horse_no"].map(pop_by_horse).to_numpy(dtype=float)
-                        if bundle.deviation is not None else None),
+                        if (bundle.deviation is not None or bundle.bets is not None) else None),
+            bets=bundle.bets,
             # 枠連・枠単の推奨に使う枠番（出馬表から。無ければ枠の券種は出さない）
             waku=(pd.to_numeric(feats.frame["horse_no"].map(dict(zip(card["horse_no"], card["waku"]))),
                                 errors="coerce").to_numpy(dtype=float)

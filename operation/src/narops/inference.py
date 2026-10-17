@@ -169,6 +169,7 @@ def run_inference(
     deviation: Any = None,
     popularity: np.ndarray | None = None,
     waku: np.ndarray | None = None,
+    bets: Any = None,
 ) -> InferenceResult:
     """1レース分の推論。
 
@@ -234,9 +235,53 @@ def run_inference(
         if temperature and temperature > 0:
             p = race_softmax(np.log(np.clip(p, 1e-12, 1.0)) / temperature, race_ids)
 
-    return _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds,
-                   pool_model, baba_code, class_level, day_budget_remaining, takeout,
-                   place, place_odds, strategy)
+    res = _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds,
+                  pool_model, baba_code, class_level, day_budget_remaining, takeout,
+                  place, place_odds, strategy)
+    if bets is not None:
+        # 全券種の買い目（2026-10-17）。単勝の Kelly 経路の賭け金は使わない（検証した規則と別物）
+        res.frame["stake_yen"] = 0
+        res.exotic = _bet_plans(features, p, popularity, waku, race_id, bets, cfg,
+                                day_budget_remaining, res.notes)
+    return res
+
+
+def _bet_plans(features: pd.DataFrame, p: np.ndarray, popularity, waku, race_id: str, bets,
+               cfg: OpsConfig, day_budget_remaining: int | None, notes: list[str]) -> list:
+    """全券種の買い目（判定は nar.eval.recommend / nar.eval.payout の単一実装）。
+
+    人気（締切前オッズ）が無い馬は出走取消・除外とみなして除く（2 頭まで）。それより多いと
+    オッズ未取得の疑いがあるので買わない。stake=True の買い目が本日残枠に収まらなければ見送る。
+    """
+    from .shared import ev_plans, log_p_pop, recommend
+
+    horse = features["horse_no"].to_numpy(dtype=int)
+    pop = (np.asarray(popularity, dtype=float) if popularity is not None
+           else np.full(len(horse), np.nan))
+    ok = np.isfinite(pop)
+    if ok.sum() < 2 or (~ok).sum() > 2:
+        notes.append("人気（締切前オッズ）が揃わないため全券種の買い目は出さない")
+        return []
+    plans = list(recommend(horse, waku, p, pop, bets.pop_table, list(bets.odds_free)))
+    h, pv = horse[ok], pop[ok]
+    pe = np.asarray(p, dtype=float)[ok]
+    pe = pe / pe.sum()
+    n = len(h)
+    pp = np.exp(log_p_pop(pv, np.full(n, n), np.zeros(n, dtype=int), bets.pop_table))
+    plans += ev_plans(h, pe, pp, pv, int(str(race_id)[:2]), bets.payout, list(bets.ev_rules))
+    if day_budget_remaining is None:
+        return plans
+    left = min(day_budget_remaining, cfg.max_bet_per_day)
+    kept = []
+    for pl in plans:
+        if pl.stake:
+            if pl.stake_yen > left:
+                notes.append(f"{pl.bet_type} {len(pl.tickets)}点（¥{pl.stake_yen:,}）は本日残枠 "
+                             f"¥{max(left, 0):,} を超えるため見送り")
+                continue
+            left -= pl.stake_yen
+        kept.append(pl)
+    return kept
 
 
 def _finish(race_id, features, p, per_model, notes, manifests, clock, cfg, odds, pool_model,

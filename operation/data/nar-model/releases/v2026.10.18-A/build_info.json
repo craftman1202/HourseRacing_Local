@@ -1,0 +1,36 @@
+{
+ "models": {
+  "tabm": {
+   "n_fit": 1009770,
+   "n_cal": 70424,
+   "train_end": "2026-03-20",
+   "temperature": 0.9588858781186141,
+   "onnx_check": {
+    "max_abs_diff": 7.152557373046875e-07,
+    "top1_match": 1.0,
+    "n_races": 194,
+    "passed": true
+   }
+  },
+  "lgbm": {
+   "best_iteration": 2843,
+   "n_fit": 1009770,
+   "n_cal": 70424,
+   "train_end": "2026-03-20",
+   "temperature": 0.6057874842831025
+  },
+  "catboost": {
+   "best_iteration": 4436,
+   "n_fit": 1009770,
+   "n_cal": 70424,
+   "train_end": "2026-03-20",
+   "temperature": 0.9896623521875311
+  }
+ },
+ "valid_start": "2026-10-17",
+ "weights": {
+  "tabm": 0.48837098260493167,
+  "lgbm": 0.2715279413302569,
+  "catboost": 0.24010107606481154
+ }
+}

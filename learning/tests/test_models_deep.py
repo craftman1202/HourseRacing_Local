@@ -246,3 +246,22 @@ def test_bayes_predictions_sum_to_one(bayes_arrays):
     p = m.flat_predictions(arr, len(d), n_draws=20)
     sums = pd.Series(p).groupby(d["race_id"].to_numpy()).sum()
     assert np.allclose(sums, 1.0, atol=1e-9)
+
+
+def test_bayes_row_index_points_to_input_rows_even_when_input_is_unsorted():
+    """train と valid を連結した入力（race_id 順でない）でも、flat_predictions の各値が
+    入力の同じ行（馬）に戻ること（2026-10-13 の不具合の再発防止）。"""
+    import pandas as pd
+    from nar.models.bayes import build_arrays
+
+    d = pd.DataFrame({
+        "race_id": ["B", "B", "A", "A", "A"], "horse_no": [2, 1, 3, 1, 2],
+        "horse_sk": ["h5", "h4", "h3", "h1", "h2"], "jockey_sk": ["j"] * 5, "sire_sk": ["s"] * 5,
+        "start_ts": pd.to_datetime(["2020-01-02"] * 2 + ["2020-01-01"] * 3),
+        "finish_pos": [1, 2, 1, 2, 3], "x_draw": [0.0] * 5})
+    arr = build_arrays(d, ["x_draw"])
+    for r in range(len(arr.race_ids)):
+        for k in range(arr.mask.shape[1]):
+            if arr.mask[r, k]:
+                row = arr.row_index[r, k]
+                assert d.loc[row, "race_id"] == arr.race_ids[r]

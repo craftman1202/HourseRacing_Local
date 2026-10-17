@@ -180,9 +180,15 @@ class NarSource:
                 f"{race_id}: レース条件（距離・クラス）を読めませんでした。"
                 "固定値では推論しません。")
         for key in ("distance", "class_level", "class_name", "prize_yen", "surface",
-                    "turn", "baba_condition"):
+                    "turn", "baba_condition", "race_name", "condition_name", "weather"):
             if key in header:
                 card[key] = header[key]
+        # 騎手・調教師の所属（学習側 silver/entry の `略名@所属` と同じ形。カテゴリ特徴量は
+        # `@` の後ろだけを見る）
+        for who in ("jockey", "trainer"):
+            if f"{who}_affil" in card.columns:
+                card[f"{who}_affil_sk"] = (card.get(f"{who}_name", "").astype(str) + "@"
+                                           + card[f"{who}_affil"].fillna("").astype(str))
 
         # 結果列が混じっていたら物理的に落とす。学習時と同一の関数を通す
         return to_prerace(card)

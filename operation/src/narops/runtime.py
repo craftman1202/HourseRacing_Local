@@ -118,6 +118,15 @@ def load_models(release) -> tuple[dict, "Standardizer"]:
             "渡すことになります。")
     standardizer = Standardizer(json.loads(std_file.read_text(encoding="utf-8")))
 
+    # モデルごとの特徴量（2026-10-17、全モデルアンサンブル）。無ければ全モデル共通の feature_spec
+    per_model: dict[str, list[str]] = {}
+    mf = path / "model_features.json"
+    if mf.exists():
+        per_model = json.loads(mf.read_text(encoding="utf-8"))
+
+    def feats(name: str) -> list[str]:
+        return list(per_model.get(name, features))
+
     beta_file = path / "clogit_beta.json"
     if beta_file.exists():
         payload = json.loads(beta_file.read_text(encoding="utf-8"))
@@ -130,7 +139,7 @@ def load_models(release) -> tuple[dict, "Standardizer"]:
         import lightgbm as lgb
 
         models["lgbm"] = LgbmScorer(
-            "lgbm", lgb.Booster(model_file=str(lgbm_file)), features)
+            "lgbm", lgb.Booster(model_file=str(lgbm_file)), feats("lgbm"))
 
     onnx_file = path / "tabm.onnx"
     if onnx_file.exists():
@@ -138,8 +147,16 @@ def load_models(release) -> tuple[dict, "Standardizer"]:
 
         sess = ort.InferenceSession(str(onnx_file),
                                     providers=["CPUExecutionProvider"])
-        models["tabm"] = OnnxScorer("tabm", sess, features,
+        models["tabm"] = OnnxScorer("tabm", sess, feats("tabm"),
                                     sess.get_inputs()[0].name)
+
+    cb_file = path / "catboost.onnx"
+    if cb_file.exists():
+        import onnxruntime as ort
+
+        sess = ort.InferenceSession(str(cb_file), providers=["CPUExecutionProvider"])
+        models["catboost"] = OnnxScorer("catboost", sess, feats("catboost"),
+                                        sess.get_inputs()[0].name)
 
     weighted = {k for k, w in (release.manifest.ensemble_weights or {}).items() if w > 0}
     missing = weighted - set(models)
@@ -148,6 +165,45 @@ def load_models(release) -> tuple[dict, "Standardizer"]:
             f"アンサンブル重みが付いているのに実体が無いモデル: {sorted(missing)}。"
             "重みの前提が崩れるので推論しません。")
     return models, standardizer
+
+
+@dataclass
+class BetBundle:
+    """全券種の買い目の規則と払戻予測モデル（payout_meta.json、2026-10-17）。
+
+    odds_free: 人気との合成 λ と軸の確率で決める規則（shared.Rule）
+    ev_rules:  予測払戻 × 確率の EV で決める規則（shared.EvRule）
+    payout:    券種 → shared.PayoutModel
+    pop_table: 人気×走った頭数の勝率表（走った馬で集計、学習側 roi_search.pop_table_before）
+    """
+
+    odds_free: list
+    ev_rules: list
+    payout: dict
+    pop_table: dict
+    meta: dict
+
+
+def load_bet_bundle(release) -> BetBundle | None:
+    path = Path(release.path)
+    f = path / "payout_meta.json"
+    if not f.exists():
+        return None
+    import lightgbm as lgb
+
+    from .shared import EvRule, PayoutModel, Rule
+
+    meta = json.loads(f.read_text(encoding="utf-8"))
+    payout = {bt: PayoutModel(bt, lgb.Booster(model_file=str(path / m["file"])), float(m["smear"]))
+              for bt, m in meta["models"].items()}
+    odds_free = [Rule(structure=r["structure"], lam=float(r["lam"]), min_p=float(r["min_p"]),
+                      stake=bool(r.get("stake", True)), note=str(r.get("note", "")),
+                      standalone=bool(r.get("standalone", True)))
+                 for r in meta.get("odds_free_rules", [])]
+    ev_rules = [EvRule(bet=r["bet"], t=float(r["t"]), mode=r.get("mode", "top1"),
+                       stake=bool(r.get("stake", True)), note=str(r.get("note", "")))
+                for r in meta.get("ev_rules", [])]
+    return BetBundle(odds_free, ev_rules, payout, meta["pop_table"], meta)
 
 
 @dataclass

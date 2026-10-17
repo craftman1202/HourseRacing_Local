@@ -172,12 +172,14 @@ def payout_dicts() -> dict[str, dict]:
 
 
 # ------------------------------------------------------------------ レース単位の集計
-def race_level(win: pd.DataFrame, lam: float, pays: dict) -> pd.DataFrame:
+def race_level(win: pd.DataFrame, lam: float, pays: dict, names: list[str] | None = None) -> pd.DataFrame:
     rid = win["race_id"].to_numpy()
     lp = (1 - lam) * np.log(np.clip(win["p_reg"].to_numpy(), 1e-12, 1)) + \
         lam * np.log(np.clip(win["p_pop"].to_numpy(), 1e-12, 1))
     win = win.assign(p=np.exp(race_log_softmax(lp, rid)))
     S = structures()
+    if names is not None:
+        S = {k: S[k] for k in names}
     rows = []
     for r, g in win.sort_values(["race_id", "p"], ascending=[True, False]).groupby("race_id", sort=False):
         horse = g["horse_no"].to_numpy()[:TOP]

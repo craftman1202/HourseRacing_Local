@@ -57,6 +57,15 @@ def structures() -> dict[str, tuple[str, list[tuple[int, ...]]]]:
         S[f"3連単 1・2着固定 3着{n}頭"] = ("trifecta", [(0, 1, k) for k in range(2, n + 2)])
     S["3連単 フォーメーション 1位/上位3/上位7"] = ("trifecta", [(0, j, k) for j in (1, 2) for k in range(1, 7) if k != j])
     S["3連単 BOX3頭"] = ("trifecta", list(itertools.permutations(range(3), 3)))
+    # 2026-10-17 追加: 軸1頭＋相手3〜5頭の流し（既存の名前・中身は変えない）
+    for n in (3, 5):
+        S[f"ワイド 軸1頭流し 相手{n}頭"] = ("wide", [(0, j) for j in range(1, n + 1)])
+    S["3連複 軸1頭流し 相手4頭"] = ("trio", list((0,) + c for c in itertools.combinations(range(1, 5), 2)))
+    S["3連単 1着固定流し 相手4頭"] = ("trifecta", [(0,) + c for c in itertools.permutations(range(1, 5), 2)])
+    for n in (3, 4, 5):
+        S[f"3連単 軸1頭マルチ 相手{n}頭"] = ("trifecta", [
+            t for c in itertools.permutations(range(1, n + 1), 2)
+            for t in ((0, c[0], c[1]), (c[0], 0, c[1]), (c[0], c[1], 0))])
     S["枠連 1点"] = ("bracket_q", [(0, 1)])
     S["枠連 軸流し 相手3頭"] = ("bracket_q", [(0, j) for j in (1, 2, 3)])
     S["枠単 1点"] = ("bracket_e", [(0, 1)])
@@ -124,6 +133,8 @@ class BetPlan:
     stake: bool = False
     note: str = ""
     standalone: bool = True
+    # EV で決めた買い目の明細（ticket・ev・odds_hat・p）。通知に EV と予想配当を出すため
+    detail: list = field(default_factory=list)
 
     @property
     def stake_yen(self) -> int:

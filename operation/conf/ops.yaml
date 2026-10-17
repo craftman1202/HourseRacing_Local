@@ -117,6 +117,11 @@ skew:
     - market_pop_rank
     - market_pop_logrank
     - market_pop_pct
+    # カテゴリ特徴量（2026-10-17、conf_pop_cat）のうち、推論時は当日ページの見出し（発走 13 分前）、
+    # 翌日の再計算は確定記録から作る天候・馬場。発走までに変わることがある
+    - c_going
+    - c_rain
+    - c_snow
 
 monitoring:
   model_stale_days: 90           # current の学習日がこれ以上前なら鮮度アラート

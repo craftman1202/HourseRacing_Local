@@ -272,6 +272,10 @@ def build_for_race(
         "class_level": race_row.get("class_level", 1),
         "prize_yen": race_row.get("prize_yen", 1_000_000),
         "n_runners": len(card),
+        # カテゴリ特徴量（conf_pop_cat）のレース単位の入力。当日ページの見出しから
+        "race_name": race_row.get("race_name", ""),
+        "condition_name": race_row.get("condition_name", ""),
+        "weather": race_row.get("weather", ""),
     }])
     hist_races = (history[["race_id", "race_date", "start_ts", "baba_code", "distance"]]
                   .drop_duplicates("race_id"))
@@ -282,6 +286,7 @@ def build_for_race(
                         if "turn" in history.columns else None)
         hist_races = hist_races.assign(
             race_no=1, surface="ダ", class_level=1, prize_yen=1_000_000,
+            race_name="", condition_name="", weather="",
             turn=(hist_races["race_id"].map(turn_by_race) if turn_by_race is not None
                   else ""),
             baba_condition="")

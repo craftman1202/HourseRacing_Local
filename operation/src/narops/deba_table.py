@@ -222,6 +222,10 @@ _TURN_RE = re.compile(r"[（(]\s*(左|右|直線?)\s*[）)]")
 # 学習と推論で入力が食い違う。
 _BABA_RE = re.compile(r"馬場\s*[：:]\s*(良|稍重|重|不良|\d+(?:\.\d+)?)")
 _PRIZE_RE = re.compile(r"1着\s*([\d,]+)\s*円")
+# 2026-10-17 追加（カテゴリ特徴量 nar.features.categorical の入力。学習側は silver/race の
+# race_name / condition_name / weather）。競走条件は「サラブレッド系 一般 [定量|別定|…]」の部分。
+_WEATHER_RE = re.compile(r"天候\s*[：:]\s*(\S+)")
+_CONDITION_RE = re.compile(r"((?:サラブレッド|サラ|アラブ|アングロアラブ)系?[^＊*]*?)(?:\s*[＊*]|$)")
 
 
 def parse_race_header(html: str) -> dict:
@@ -251,6 +255,15 @@ def parse_race_header(html: str) -> dict:
         out["baba_condition"] = m.group(1)
     if m := _PRIZE_RE.search(text):
         out["prize_yen"] = float(m.group(1).replace(",", ""))
+
+    # カテゴリ特徴量の入力（学習側 silver/race と同じ意味の列）
+    h3 = node.select_one("h3")
+    if h3 is not None:
+        out["race_name"] = re.sub(r"\s+", " ", h3.get_text(" ", strip=True))
+    if m := _WEATHER_RE.search(text):
+        out["weather"] = m.group(1)
+    if m := _CONDITION_RE.search(text):
+        out["condition_name"] = m.group(1).strip()
 
     out["class_name"] = _class_name(text)
     # 序数化は学習側の関数に通す。ここで別に書くと、学習と推論で

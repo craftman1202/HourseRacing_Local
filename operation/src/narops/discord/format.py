@@ -94,6 +94,15 @@ def race_embed(
     EV が閾値未満のレースは通知自体を省略する。1日60レースすべてを通知すると
     通知疲れで見なくなり、それが最大の運用リスク（設計書 §4.3）。
     """
+    # 全券種の買い目（2026-10-17、全モデルアンサンブルのリリース）。BetPlan に structure があり、
+    # 単勝・複勝 EV の表（ev_place）を持たない経路
+    plans = [pl for pl in (exotic or []) if hasattr(pl, "structure")]
+    if plans and "ev_place" not in candidates.columns:
+        return _race_embed_plans(
+            track_name=track_name, race_no=race_no, class_name=class_name, distance=distance,
+            start_ts=start_ts, now=now, model_release=model_release, track_used=track_used,
+            candidates=candidates, horse_names=horse_names,
+            day_budget_remaining=day_budget_remaining, plans=plans)
     if "ev_place" in candidates.columns:
         return _race_embed_max_ev(
             race_id=race_id, track_name=track_name, race_no=race_no,
@@ -230,6 +239,78 @@ def _race_embed_max_ev(
         color=COLOR_GREEN if len(bets) or staked else ev_color(best),
         footer=f"{model_release} / トラック{track_used}",
     )
+
+
+BET_ORDER = ("単勝", "複勝", "ワイド", "馬連", "馬単", "3連複", "3連単", "枠連", "枠単")
+MAX_TICKET_LINES = 8
+
+
+def _horse(no: int, names: dict) -> str:
+    return f"{no}番 {names.get(no, '')}".rstrip()
+
+
+def _race_embed_plans(*, track_name, race_no, class_name, distance, start_ts, now, model_release,
+                      track_used, candidates, horse_names, day_budget_remaining, plans) -> Embed | None:
+    """全券種の買い目（軸・相手・買い目・金額）を券種ごとに1ブロックで出す。
+
+    上に勝率上位の馬（印つき）、その下に券種ごとの「軸 / 相手 / 買い目 / 金額」。
+    EV で決めた券種は買い目ごとに EV と予想配当（払戻予測モデル）も出す。
+    """
+    names = horse_names or {}
+    staked = [pl for pl in plans if getattr(pl, "stake", True)]
+    triggers = [pl for pl in plans if getattr(pl, "stake", True) or getattr(pl, "standalone", True)]
+    if not triggers:
+        return None
+    jst = to_jst(start_ts)
+    remaining = (start_ts - now).total_seconds() / 60.0
+    top = candidates.sort_values("p_win", ascending=False).head(5)
+    marks = "◎○▲△☆"
+    lines = ["**予想（勝率）** " + "　".join(
+        f"{marks[i]}{int(r['horse_no'])} {names.get(int(r['horse_no']), '')} {fmt_pct(r['p_win'])}"
+        for i, (_, r) in enumerate(top.iterrows()))]
+    order = {b: i for i, b in enumerate(BET_ORDER)}
+    for pl in sorted(plans, key=lambda x: order.get(x.bet_type, 99)):
+        lines.append(_plan_block(pl, names))
+    total = sum(int(pl.stake_yen) for pl in staked)
+    tail = [f"買い目合計 **{fmt_yen(total)}**"]
+    if day_budget_remaining is not None:
+        tail.append(f"本日残枠 {fmt_yen(day_budget_remaining)}")
+    lines.append("　".join(tail))
+    lines.append("_ペーパー運用。検証値は 2020〜2023 の walk-forward（オッズは予測払戻）_")
+    return Embed(
+        title=f"🏇 {track_name} {race_no}R  {class_name} {distance}m  "
+              f"発走 {jst:%H:%M} (残り{remaining:.0f}分)",
+        description="\n".join(lines),
+        color=COLOR_GREEN if staked else COLOR_GREY,
+        footer=f"{model_release} / トラック{track_used}",
+    )
+
+
+def _plan_block(pl, names: dict) -> str:
+    """1 券種ぶん。軸と相手を名前つきで、買い目は券種の書き方で（→ は着順あり、- は着順なし）。"""
+    ordered = pl.bet_type in ("馬単", "3連単", "枠単")
+    sep = "→" if ordered else "-"
+    head = f"🎯 **{pl.bet_type}**（{pl.structure}）"
+    if pl.bet_type in ("枠連", "枠単"):
+        who = f"　軸馬 {_horse(pl.axis, names)} の枠 ／ 相手 {_horse(pl.partners[0], names) + ' の枠' if pl.partners else '—'}"
+    elif len(pl.tickets) == 1 and len(pl.tickets[0]) == 1:
+        who = f"　軸 {_horse(pl.axis, names)}（勝率 {pl.p_axis * 100:.0f}%）"
+    else:
+        partners = sorted({h for t in pl.tickets for h in t if h != pl.axis},
+                          key=lambda h: pl.partners.index(h) if h in pl.partners else 99)
+        who = (f"　軸 {_horse(pl.axis, names)} ／ 相手 "
+               + "、".join(_horse(h, names) for h in partners))
+    detail = {tuple(d["ticket"]): d for d in (getattr(pl, "detail", None) or [])}
+    rows = []
+    for t in pl.tickets[:MAX_TICKET_LINES]:
+        d = detail.get(tuple(t))
+        extra = f"（EV {d['ev']:.2f}・予想 {d['odds_hat']:.1f}倍）" if d else ""
+        rows.append(sep.join(str(h) for h in t) + extra)
+    more = f" ほか{len(pl.tickets) - MAX_TICKET_LINES}点" if len(pl.tickets) > MAX_TICKET_LINES else ""
+    money = f"{len(pl.tickets)}点 × ¥{pl.unit_yen:,} = **¥{pl.stake_yen:,}**"
+    note = f"　{pl.note}" if pl.note else ""
+    label = "買い目（枠番）" if pl.bet_type in ("枠連", "枠単") else "買い目"
+    return f"{head}\n{who}\n　{label} " + "　".join(rows) + more + f"\n　{money}{note}"
 
 
 def _plan_lines(plan, names: dict) -> str:
