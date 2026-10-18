@@ -162,3 +162,19 @@ def test_rakuten_driver_refuses_waku_and_late_orders_without_opening_a_browser()
     late.start_ts = (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
     assert d.place(late, late.lines[0], submit=True).status == "rejected"
     assert d._page is None                       # どちらもブラウザを起動していない
+
+
+def test_completion_page_with_error_column_header_is_placed():
+    """受付画面にも『エラー内容』の列見出しがある。それで rejected にしてはいけない（実機で発生）。"""
+    from narops.orders.rakuten import classify_completion
+    body = ("投票完了 当サイトではブラウザの戻るボタンを使用しないようお願い致します。 お客様の投票を以下のように受け付けました。 "
+            "受付番号 : 0014 受付時刻 : 16:11 投票件数 : 1 番号 エラー内容 式別 方式 馬／組番 オッズ 金額 概算払戻金 "
+            "佐賀 3R 1 - 馬単 通常 2→1 17.5 100円 1,750円 精算可能額 3,590円")
+    status, detail, balance = classify_completion(body)
+    assert status == "placed" and "0014" in detail and balance == 3590
+
+
+def test_completion_classifier_rejects_real_errors_and_unknown_pages():
+    from narops.orders.rakuten import classify_completion
+    assert classify_completion("投票エラー 投票締切時刻を過ぎています")[0] == "rejected"
+    assert classify_completion("メンテナンス中です")[0] == "error"

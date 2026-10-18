@@ -44,6 +44,22 @@ class LoginRequired(RuntimeError):
 
 
 # ------------------------------------------------------------ 純粋関数（テスト対象）
+def classify_completion(body: str) -> tuple[str, str, int | None]:
+    """送信後の画面の文字から (status, detail, 精算可能額)。
+
+    受付画面にも「エラー内容」という列見出しがあるので、エラー語の有無では判定しない
+    （2026-10-18 に実際に買えた注文を rejected と誤判定した）。受付の印は「投票完了」と受付番号。
+    """
+    text = re.sub(r"\s+", " ", body or "")
+    bal = re.search(r"精算可能額\s*([\d,]+)円", text)
+    balance = int(bal.group(1).replace(",", "")) if bal else None
+    m = re.search(r"受付番号\s*[:：]?\s*(\d+)", text)
+    if "投票完了" in text or m:
+        return "placed", f"受付番号 {m.group(1) if m else '?'}", balance
+    if re.search(r"エラー|失敗|できません|受け付けられません|締め切り|締切", text[:1200]):
+        return "rejected", "楽天がエラーを返しました: " + text[:160], balance
+    return "error", "送信後の画面を判別できません。二重購入を避けるため再送しません。履歴を確認してください: " + text[:100], balance
+
 def numbers(text: str) -> tuple[int, ...]:
     return tuple(int(x) for x in re.findall(r"\d+", text or ""))
 
@@ -204,13 +220,12 @@ class RakutenDriver:
                 return OrderResult("error", "送信後に完了画面を確認できません。二重購入を避けるため再送しません。"
                                             "楽天の「履歴」で購入済みか確認してください")
             page.wait_for_timeout(1500)
-            body = re.sub(r"\s+", " ", page.inner_text("body"))
+            body = page.inner_text("body")
             self._save_receipt(page, plan, line, "done")
-            if re.search(r"エラー|失敗|できません|受け付けられません", body[:600]):
-                return OrderResult("rejected", "楽天がエラーを返しました: " + body[:160])
-            bal = re.search(r"精算可能額\s*([\d,]+)円", body)
-            return OrderResult("placed", f"{len(rows)}点 ¥{total:,}。画面: {body[:80]}",
-                               int(bal.group(1).replace(",", "")) if bal else None)
+            status, detail, balance = classify_completion(body)
+            if status == "placed":
+                detail = f"{detail}、{len(rows)}点 ¥{total:,}"
+            return OrderResult(status, detail, balance)
         except LoginRequired as exc:
             return OrderResult("error", str(exc))
         except Exception as exc:  # noqa: BLE001
