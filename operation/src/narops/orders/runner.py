@@ -86,19 +86,32 @@ def main() -> int:
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--conf", default=str(CONF))
     ap.add_argument("--interval", type=int, default=20)
+    ap.add_argument("--plan-file", help="GCS の代わりにローカルの発注計画 JSON（1 レース分）を読む（動作確認用）")
+    ap.add_argument("--live", action="store_true", help="NAR_ORDERS_LIVE=1 と同じ（設定の live: true も必要）")
+    ap.add_argument("--no-discord", action="store_true", help="Discord に送らない（動作確認用）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    from ..config import load_dotenv
+
+    for k, v in load_dotenv(Path(__file__).resolve().parents[3] / ".env").items():
+        os.environ.setdefault(k, v)                      # Discord の webhook（.env）。認証情報は出さない
+    if a.live:
+        os.environ["NAR_ORDERS_LIVE"] = "1"
     limits = Limits.load(a.conf)
     bucket = os.environ.get("NAROPS_ORDER_BUCKET") or "nar-raw-sample-335613"
     ledger, errors = Ledger(), [0]
-    report = DiscordReporter()
+    report = DiscordReporter(webhook="") if a.no_discord else DiscordReporter()
+    if a.no_discord:
+        report.sender = None
     driver = RakutenDriver()
     report.started(limits, is_live(limits))
     try:
         while True:
             now = datetime.now(timezone.utc)
             day = now.astimezone().strftime("%Y-%m-%d")
-            for plan in load_plans(day, bucket, os.environ.get("NAROPS_PROJECT", "sample-335613")):
+            plans = ([OrderPlan.from_json(Path(a.plan_file).read_text(encoding="utf-8"))] if a.plan_file
+                     else load_plans(day, bucket, os.environ.get("NAROPS_PROJECT", "sample-335613")))
+            for plan in plans:
                 process(plan, limits, ledger, driver, report, now, errors)
             if a.once:
                 break

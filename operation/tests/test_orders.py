@@ -116,6 +116,49 @@ def test_consecutive_errors_halt(tmp_path):
     assert ("halt", 2) in rep.log and len(drv.calls) == 2
 
 
-def test_unimplemented_rakuten_driver_never_reports_success():
+def test_rakuten_verify_accepts_exact_match_and_normalizes_order():
+    from narops.orders.rakuten import verify
+    line = OrderLine("3連複", ((8, 5, 7), (1, 2, 3)), 100)
+    rows = [{"horse": "5-7-8", "amount_yen": 100, "race_no": 4, "track": 31, "error": "-"},
+            {"horse": "1-2-3", "amount_yen": 100, "race_no": 4, "track": 31, "error": "-"}]
+    assert verify(rows, line, 4, 31) is None
+
+
+def test_rakuten_verify_keeps_order_for_exacta_and_trifecta():
+    from narops.orders.rakuten import verify
+    line = OrderLine("3連単", ((5, 7, 8),), 200)
+    ok = [{"horse": "5→7→8", "amount_yen": 200, "race_no": 4, "track": 31, "error": ""}]
+    bad = [{"horse": "5→8→7", "amount_yen": 200, "race_no": 4, "track": 31, "error": ""}]
+    assert verify(ok, line, 4) is None and "買い目" in verify(bad, line, 4)
+
+
+@pytest.mark.parametrize("mutate,expect", [
+    (lambda r: r.update(amount_yen=200), "買い目または金額"),
+    (lambda r: r.update(race_no=5), "レースが違います"),
+    (lambda r: r.update(track=30), "競馬場が違います"),
+    (lambda r: r.update(error="発売されていません"), "エラー"),
+])
+def test_rakuten_verify_rejects_any_difference(mutate, expect):
+    from narops.orders.rakuten import verify
+    row = {"horse": "5", "amount_yen": 100, "race_no": 4, "track": 31, "error": "-"}
+    mutate(row)
+    assert expect in verify([row], OrderLine("単勝", ((5,),), 100), 4, 31)
+
+
+def test_rakuten_verify_rejects_leftover_cart_rows():
+    """カゴに前回の買い目が残っていたら件数が合わず止まる。"""
+    from narops.orders.rakuten import verify
+    rows = [{"horse": "5", "amount_yen": 100, "race_no": 4, "track": 31, "error": ""},
+            {"horse": "7", "amount_yen": 100, "race_no": 3, "track": 31, "error": ""}]
+    assert "件数" in verify(rows, OrderLine("単勝", ((5,),), 100), 4)
+
+
+def test_rakuten_driver_refuses_waku_and_late_orders_without_opening_a_browser():
     from narops.orders.rakuten import RakutenDriver
-    assert RakutenDriver().place(_plan(), _plan().lines[0], submit=True).status == "error"
+    d = RakutenDriver()
+    waku = OrderLine("枠連", ((2, 3),), 100)
+    assert d.place(_plan([waku]), waku, submit=True).status == "rejected"
+    late = _plan()
+    late.start_ts = (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
+    assert d.place(late, late.lines[0], submit=True).status == "rejected"
+    assert d._page is None                       # どちらもブラウザを起動していない
