@@ -91,6 +91,9 @@ def main() -> int:
     ap.add_argument("--no-discord", action="store_true", help="Discord に送らない（動作確認用）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    # httpx は INFO で Discord の webhook URL（秘密）をそのままログに出す。出さない
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     from ..config import load_dotenv
 
     for k, v in load_dotenv(Path(__file__).resolve().parents[3] / ".env").items():
