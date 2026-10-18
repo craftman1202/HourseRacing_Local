@@ -620,12 +620,30 @@ def infer_endpoint(svc: Services, race_id: str, attempt: int = 0) -> InferenceOu
 
     write_bet_candidates(svc.wh, race_id, res.frame, bundle.manifest.model_id, day, svc.clock,
                          exotic=getattr(res, "exotic", None))
+    _publish_order_plan(svc, race_id, row, res, day, bundle)
     candidates = res.bet_candidates(svc.cfg.discord_min_ev)
 
     if svc.state.can_deliver() and svc.sender is not None:
         _deliver(svc, race_id, row, res, day, bundle, card)
 
     return InferenceOutcome(race_id, "ok", res.frame, candidates)
+
+
+def _publish_order_plan(svc: Services, race_id: str, row: pd.Series, res, day: date,
+                        bundle: "ModelBundle") -> None:
+    """買い目を GCS に置く（PC の自動発注ランナーが読む）。NAROPS_ORDER_BUCKET が無ければ何もしない。
+    失敗しても推論・通知は止めない。"""
+    import os
+
+    if not os.environ.get("NAROPS_ORDER_BUCKET") or not getattr(res, "exotic", None):
+        return
+    from .orders.plan import from_bet_plans, publish_order_plan
+
+    plan = from_bet_plans([p for p in res.exotic if hasattr(p, "structure")], race_id=race_id,
+                          race_date=day, start_ts=to_utc(row["start_ts"]),
+                          track_name=str(row.get("track_name", "")), race_no=int(row["race_no"]),
+                          release=bundle.manifest.model_id)
+    publish_order_plan(plan)
 
 
 def _deliver(svc: Services, race_id: str, row: pd.Series, res, day: date,
