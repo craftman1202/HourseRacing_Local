@@ -25,7 +25,7 @@ from pathlib import Path
 from .driver import OrderResult
 from .plan import OrderLine, OrderPlan
 
-PROFILE = Path.home() / ".cache/nar-orders/chrome-profile"
+PROFILE = Path(os.environ.get("NAR_ORDERS_PROFILE") or Path.home() / ".cache/nar-orders/chrome-profile")
 RECEIPTS = Path.home() / ".cache/nar-orders/receipts"
 TOP = "https://keiba.rakuten.co.jp/"
 BET = "https://bet.keiba.rakuten.co.jp/bet/normal/RACEID/{id}"

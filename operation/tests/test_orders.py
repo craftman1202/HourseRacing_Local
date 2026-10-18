@@ -178,3 +178,23 @@ def test_completion_classifier_rejects_real_errors_and_unknown_pages():
     from narops.orders.rakuten import classify_completion
     assert classify_completion("投票エラー 投票締切時刻を過ぎています")[0] == "rejected"
     assert classify_completion("メンテナンス中です")[0] == "error"
+
+
+def test_claim_is_atomic_so_two_runners_never_order_the_same_ticket(tmp_path):
+    a, b = Ledger(tmp_path / "l.sqlite"), Ledger(tmp_path / "l.sqlite")     # 別プロセス相当の2接続
+    assert a.claim("R1", "2026-10-18", "3連単", ((1, 2, 3),), 100, START) is True
+    assert b.claim("R1", "2026-10-18", "3連単", ((1, 2, 3),), 100, START) is False
+    assert b.claim("R1", "2026-10-18", "馬連", ((1, 2),), 100, START) is True      # 別の券種は別
+
+
+def test_runner_skips_a_line_another_runner_already_claimed(tmp_path):
+    led = Ledger(tmp_path / "l.sqlite")
+    led.claim("212026101805", "2026-10-18", "複勝", ((4,),), 100, START)     # 他のランナーが先に取った
+    _, drv, _ = _run(_plan(), _limits(), tmp_path, START - timedelta(minutes=8), ledger=led)
+    assert [c[1] for c in drv.calls] == ["3連複"]
+
+
+def test_pending_counts_toward_the_daily_cap(tmp_path):
+    led = Ledger(tmp_path / "l.sqlite")
+    led.claim("other", "2026-10-18", "3連単", ((1, 2, 3),), 900, START)
+    assert led.spent("2026-10-18", live=True) == 900 and led.spent("2026-10-18", live=False) == 900

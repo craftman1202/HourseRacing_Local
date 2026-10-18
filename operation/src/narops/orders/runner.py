@@ -53,6 +53,8 @@ def process(plan: OrderPlan, limits: Limits, ledger: Ledger, driver: Driver, rep
             ledger.record(plan.race_id, plan.race_date, ln.bet_type, ln.tickets, ln.stake_yen, "skipped", why, now)
             report.skipped(plan, ln, why)
             continue
+        if not ledger.claim(plan.race_id, plan.race_date, ln.bet_type, ln.tickets, ln.stake_yen, now):
+            continue                                   # 別のランナーが先に処理している（二重発注の防止）
         try:
             res = driver.place(plan, ln, submit=live)
         except Exception as exc:  # noqa: BLE001
@@ -88,6 +90,7 @@ def main() -> int:
     ap.add_argument("--interval", type=int, default=20)
     ap.add_argument("--plan-file", help="GCS の代わりにローカルの発注計画 JSON（1 レース分）を読む（動作確認用）")
     ap.add_argument("--live", action="store_true", help="NAR_ORDERS_LIVE=1 と同じ（設定の live: true も必要）")
+    ap.add_argument("--ledger", help="発注台帳（sqlite）の場所。中央競馬用など、ランナーを分けるときに別にする")
     ap.add_argument("--no-discord", action="store_true", help="Discord に送らない（動作確認用）")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -102,7 +105,7 @@ def main() -> int:
         os.environ["NAR_ORDERS_LIVE"] = "1"
     limits = Limits.load(a.conf)
     bucket = os.environ.get("NAROPS_ORDER_BUCKET") or "nar-raw-sample-335613"
-    ledger, errors = Ledger(), [0]
+    ledger, errors = Ledger(a.ledger), [0]
     report = DiscordReporter(webhook="") if a.no_discord else DiscordReporter()
     if a.no_discord:
         report.sender = None
