@@ -21,20 +21,21 @@ def _tickets(line: OrderLine, limit: int = 8) -> str:
 
 
 class DiscordReporter:
-    def __init__(self, webhook: str | None = None) -> None:
+    def __init__(self, webhook: str | None = None, name: str = "main") -> None:
+        self.name = name
         url = webhook or os.environ.get("DISCORD_WEBHOOK_ORDERS") or os.environ.get("DISCORD_WEBHOOK_PREDICTION")
         self.sender = DiscordSender(url) if url else None
 
     def _send(self, title: str, desc: str, color: int) -> None:
         if self.sender is not None:
-            self.sender.send([Embed(title=title, description=desc, color=color, footer="自動発注")])
+            self.sender.send([Embed(title=title, description=desc, color=color, footer=f"自動発注 {self.name}")])
 
     def started(self, limits, live: bool) -> None:
-        self._send("🤖 自動発注ランナー起動",
+        self._send(f"🤖 自動発注ランナー起動（{self.name}）",
                    f"モード: **{'実発注' if live else 'ドライラン（送信しません）'}**\n"
                    f"対象券種: {'、'.join(limits.bet_types) or 'なし'}\n"
                    f"上限: 1券種 {fmt_yen(limits.line_cap_yen)} / 1レース {fmt_yen(limits.race_cap_yen)} / "
-                   f"1日 {fmt_yen(limits.daily_cap_yen)}\n停止: `touch ~/.cache/nar-orders/STOP`",
+                   f"1日の損失 {fmt_yen(limits.daily_loss_cap_yen)}\n一時停止: `scripts/orders.sh -i {self.name} pause`",
                    COLOR_YELLOW if live else COLOR_GREY)
 
     def line(self, plan: OrderPlan, line: OrderLine, res: OrderResult, live: bool) -> None:

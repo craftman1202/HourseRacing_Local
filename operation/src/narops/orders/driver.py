@@ -23,6 +23,7 @@ class OrderResult:
 
 
 class Driver(Protocol):
+    def balance(self, plan: OrderPlan) -> int | None: ...      # 精算可能額（読めなければ None）
     def place(self, plan: OrderPlan, line: OrderLine, submit: bool) -> OrderResult: ...
     def close(self) -> None: ...
 
@@ -30,9 +31,13 @@ class Driver(Protocol):
 class FakeDriver:
     """テスト用。"""
 
-    def __init__(self, fail_on: set[str] | None = None) -> None:
+    def __init__(self, fail_on: set[str] | None = None, balance_yen: int | None = 10_000) -> None:
         self.calls: list[tuple[str, str, bool]] = []
         self.fail_on = fail_on or set()
+        self.balance_yen = balance_yen
+
+    def balance(self, plan: OrderPlan) -> int | None:
+        return self.balance_yen
 
     def place(self, plan: OrderPlan, line: OrderLine, submit: bool) -> OrderResult:
         self.calls.append((plan.race_id, line.bet_type, submit))

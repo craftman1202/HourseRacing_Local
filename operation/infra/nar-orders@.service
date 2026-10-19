@@ -1,0 +1,22 @@
+# 自動発注ランナー（楽天競馬）のテンプレートサービス。インスタンス名 = ランナーの名前。
+#   例: nar-orders@main.service。別のランナー（地方競馬向けの別サービスなど）は nar-orders@<別名>.service。
+# インスタンスごとの設定は ~/.config/nar-orders/<名前>.env（無ければ起動しない）。
+#   NAR_ORDERS_CONF     設定ファイル（上限・券種・live）
+#   NAR_ORDERS_PROFILE  Chrome のプロファイル（同時に動くランナーは別々にする。同じ所は同時に開けない）
+#   NAR_ORDERS_LEDGER   台帳（同じ楽天アカウントのランナーは共有する。損失上限と二重発注の防止が共有になる）
+# 操作は scripts/orders.sh（docs/AutoOrders.md）。
+[Unit]
+Description=NAR auto-order runner (%i)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/machine_learner/HourseRacing_Local/operation
+EnvironmentFile=%h/.config/nar-orders/%i.env
+Environment=DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 PYTHONUNBUFFERED=1
+ExecStart=/home/machine_learner/HourseRacing_Local/operation/scripts/rakuten.sh -m narops.orders.runner --live --name %i --conf ${NAR_ORDERS_CONF}
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

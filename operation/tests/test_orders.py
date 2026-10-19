@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -23,7 +24,7 @@ def _plan(lines=None):
 
 
 def _limits(**kw):
-    base = dict(live=False, daily_cap_yen=1000, race_cap_yen=500, line_cap_yen=300,
+    base = dict(live=False, daily_loss_cap_yen=1000, race_cap_yen=500, line_cap_yen=300,
                 bet_types=("複勝", "3連複"))
     base.update(kw)
     return Limits(**base)
@@ -37,10 +38,10 @@ class Report:
     def halt(self, n): self.log.append(("halt", n))
 
 
-def _run(plan, limits, tmp_path, now, driver=None, errors=None, ledger=None):
+def _run(plan, limits, tmp_path, now, driver=None, errors=None, ledger=None, kill_files=(Path("/nonexistent/STOP"),)):
     led = ledger or Ledger(tmp_path / "l.sqlite")
     drv, rep = driver or FakeDriver(), Report()
-    process(plan, limits, led, drv, rep, now, errors or [0])
+    process(plan, limits, led, drv, rep, now, errors or [0], kill_files)
     return led, drv, rep
 
 
@@ -91,11 +92,69 @@ def test_caps_skip_instead_of_trimming(tmp_path):
     assert any(r[0] == "skip" and "上限" in r[2] for r in rep.log)
 
 
-def test_daily_cap_counts_across_races(tmp_path):
+def test_daily_loss_cap_uses_balance_not_stakes(tmp_path):
+    """上限は賭け額の合計ではなく損失（基準残高 − 今の残高）。今日すでに ¥900 負けていれば、あと ¥100 まで。"""
     led = Ledger(tmp_path / "l.sqlite")
-    led.record("other", "2026-10-18", "複勝", ((1,),), 900, "dry_run", "", START)
-    _, drv, rep = _run(_plan(), _limits(daily_cap_yen=1000), tmp_path, START - timedelta(minutes=8), ledger=led)
-    assert [c[1] for c in drv.calls] == ["複勝"]            # 3連複は 900+100+100 > 1000
+    led.set_baseline("2026-10-18", 10_000, START)
+    _, drv, rep = _run(_plan(), _limits(daily_loss_cap_yen=1000), tmp_path, START - timedelta(minutes=8),
+                       driver=FakeDriver(balance_yen=9_100), ledger=led)
+    assert [c[1] for c in drv.calls] == ["複勝"]                       # 3連複は 900+100+100 > 1000
+    assert any(r[0] == "skip" and "損失上限" in r[2] for r in rep.log)
+
+
+def test_winnings_make_room_under_the_loss_cap(tmp_path):
+    """賭け額は多くても、払戻で残高が戻っていれば損失は小さい。"""
+    led = Ledger(tmp_path / "l.sqlite")
+    led.set_baseline("2026-10-18", 10_000, START)
+    led.record("old", "2026-10-18", "3連単", ((1, 2, 3),), 5_000, "placed", "", START)   # 賭け額は 5,000
+    _, drv, _ = _run(_plan(), _limits(daily_loss_cap_yen=1000), tmp_path, START - timedelta(minutes=8),
+                     driver=FakeDriver(balance_yen=9_900), ledger=led)                 # でも損失は 100
+    assert len(drv.calls) == 2
+
+
+def test_profit_does_not_raise_the_cap(tmp_path):
+    led = Ledger(tmp_path / "l.sqlite")
+    led.set_baseline("2026-10-18", 10_000, START)
+    _, drv, _ = _run(_plan([OrderLine("複勝", ((4,),), 100), OrderLine("3連複", ((2, 5, 7),), 300)]),
+                     _limits(daily_loss_cap_yen=300, line_cap_yen=300), tmp_path, START - timedelta(minutes=8),
+                     driver=FakeDriver(balance_yen=12_000), ledger=led)               # +2,000 の利益
+    assert [c[1] for c in drv.calls] == ["複勝"]                                       # 損失は 0 扱い。100+300 > 300
+
+
+def test_first_order_of_the_day_records_the_baseline(tmp_path):
+    led, drv, _ = _run(_plan(), _limits(), tmp_path, START - timedelta(minutes=8), driver=FakeDriver(balance_yen=7_000))
+    assert led.baseline("2026-10-18") == 7_000
+
+
+def test_baseline_when_starting_mid_day_assumes_no_payouts_yet(tmp_path):
+    """途中から動き始めたら 基準 = 今の残高 + 今日すでに受け付けた額（払戻があれば損失を多めに見る＝安全側）。"""
+    led = Ledger(tmp_path / "l.sqlite")
+    led.record("old", "2026-10-18", "複勝", ((1,),), 400, "placed", "", START)
+    _run(_plan(), _limits(), tmp_path, START - timedelta(minutes=8), driver=FakeDriver(balance_yen=6_600), ledger=led)
+    assert led.baseline("2026-10-18") == 7_000
+
+
+def test_unreadable_balance_means_no_orders(tmp_path):
+    _, drv, rep = _run(_plan(), _limits(), tmp_path, START - timedelta(minutes=8), driver=FakeDriver(balance_yen=None))
+    assert drv.calls == [] and rep.log[0][0] == "skip_all" and "精算可能額" in rep.log[0][1]
+
+
+def test_pause_is_quiet_nothing_recorded_nothing_reported(tmp_path):
+    stop = tmp_path / "STOP"; stop.write_text("x")
+    led, drv, rep = _run(_plan(), _limits(), tmp_path, START - timedelta(minutes=8), kill_files=(stop,))
+    assert drv.calls == [] and rep.log == [] and led.rows("2026-10-18") == []
+
+
+def test_plans_long_after_the_start_are_ignored_silently(tmp_path):
+    led, drv, rep = _run(_plan(), _limits(), tmp_path, START + timedelta(minutes=40))
+    assert drv.calls == [] and rep.log == [] and led.rows("2026-10-18") == []
+
+
+def test_old_stake_based_cap_key_is_rejected(tmp_path):
+    from narops.orders.guard import Limits
+    f = tmp_path / "c.yaml"; f.write_text("live: false\ndaily_cap_yen: 3000\n")
+    with pytest.raises(ValueError, match="損失"):
+        Limits.load(f)
 
 
 def test_bet_type_not_allowed_is_skipped(tmp_path):
@@ -105,7 +164,7 @@ def test_bet_type_not_allowed_is_skipped(tmp_path):
 
 def test_kill_file_stops_everything(tmp_path):
     kill = tmp_path / "STOP"; kill.write_text("x")
-    d = decide(_plan(), _limits(), START - timedelta(minutes=8), 0, set(), kill_file=kill)
+    d = decide(_plan(), _limits(), START - timedelta(minutes=8), 0, set(), kill_files=(kill,))
     assert d.reason_all and not d.allowed
 
 
@@ -194,7 +253,11 @@ def test_runner_skips_a_line_another_runner_already_claimed(tmp_path):
     assert [c[1] for c in drv.calls] == ["3連複"]
 
 
-def test_pending_counts_toward_the_daily_cap(tmp_path):
+def test_pending_counts_toward_the_loss(tmp_path):
+    """別のランナーが今まさに買っている額（処理中）も損失に数える。"""
     led = Ledger(tmp_path / "l.sqlite")
     led.claim("other", "2026-10-18", "3連単", ((1, 2, 3),), 900, START)
-    assert led.spent("2026-10-18", live=True) == 900 and led.spent("2026-10-18", live=False) == 900
+    led.set_baseline("2026-10-18", 10_000, START)
+    _, drv, _ = _run(_plan(), _limits(daily_loss_cap_yen=1000), tmp_path, START - timedelta(minutes=8),
+                     driver=FakeDriver(balance_yen=10_000), ledger=led)
+    assert [c[1] for c in drv.calls] == ["複勝"]

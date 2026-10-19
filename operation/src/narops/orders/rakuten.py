@@ -155,6 +155,16 @@ class RakutenDriver:
         if page.locator("#buyTable tr.buyData").count():
             raise RuntimeError("馬券カゴを空にできません")
 
+    def balance(self, plan: OrderPlan) -> int | None:
+        """投票画面の見出しにある「精算可能額」。購入で減り、払戻で増える（損失の計算に使う）。"""
+        page = self._page_()
+        page.goto(self._bet_url(plan), wait_until="domcontentloaded")
+        page.wait_for_timeout(2500)
+        if "bet.keiba.rakuten.co.jp" not in page.url or page.locator("#baseAmount").count() == 0:
+            raise LoginRequired("楽天にログインしていません（ログイン画面に戻されました）")
+        m = re.search(r"精算可能額\s*([\d,]+)円", page.inner_text("body"))
+        return int(m.group(1).replace(",", "")) if m else None
+
     # --- 発注
     def place(self, plan: OrderPlan, line: OrderLine, submit: bool) -> OrderResult:
         if line.bet_type in UNSUPPORTED or line.bet_type not in TAB:

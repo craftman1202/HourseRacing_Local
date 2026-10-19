@@ -20,7 +20,23 @@ class Ledger:
             "CREATE TABLE IF NOT EXISTS orders (race_id TEXT, race_date TEXT, bet_type TEXT, "
             "tickets TEXT, stake_yen INT, status TEXT, detail TEXT, at TEXT, "
             "PRIMARY KEY (race_id, bet_type))")
+        self.db.execute("CREATE TABLE IF NOT EXISTS baseline (race_date TEXT PRIMARY KEY, balance_yen INT, at TEXT)")
         self.db.commit()
+
+    def baseline(self, race_date: str) -> int | None:
+        """その日の始めの精算可能額。損失（= 基準 − 今の残高）の計算に使う。"""
+        r = self.db.execute("SELECT balance_yen FROM baseline WHERE race_date=?", (race_date,)).fetchone()
+        return None if r is None else int(r[0])
+
+    def set_baseline(self, race_date: str, balance_yen: int, at: datetime) -> None:
+        self.db.execute("INSERT OR IGNORE INTO baseline VALUES (?,?,?)", (race_date, int(balance_yen), at.isoformat()))
+        self.db.commit()
+
+    def stake_total(self, race_date: str, statuses: tuple[str, ...]) -> int:
+        q = ",".join("?" * len(statuses))
+        r = self.db.execute(f"SELECT COALESCE(SUM(stake_yen),0) FROM orders WHERE race_date=? AND status IN ({q})",
+                            (race_date, *statuses)).fetchone()
+        return int(r[0])
 
     def done(self, race_id: str) -> set[tuple[str, str]]:
         """この発注行は二度と出さない（placed / dry_run / error も含む。エラーの再試行は人が決める）。"""
