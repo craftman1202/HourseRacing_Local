@@ -1,13 +1,15 @@
-"""券種ごとに「CI 中央値 ≥ 1 かつ CI 下限が最大」の戦略を選ぶ（2026-10-20）。
+"""券種ごとに「CI 中央値 ≥ 1 かつ CI 下限が最大」の戦略を選ぶ（2026-10-20、グリッドを細かくした版）。
 
 候補（的中確率の足切りを含む）
   EV 系   予測払戻 × 確率 の EV ≥ t、的中確率（組の p_ens）≥ p_min、全部買う(all) / レースで EV 最大の1点(top1)
-          t ∈ T_GRID, p_min ∈ P_GRID。対象: 単勝・複勝・馬連・馬単・ワイド・3連複・3連単（payout_ev の組ごとの表）
-  無オッズ系  買い方（軸流し・BOX など）× 人気との混合 λ × 軸の確率 ≥ x（strategy_select のレース単位の表）。枠連・枠単もここだけ
+          t = 1.0〜10.0 を 0.1 刻み、p_min = 0〜60% を 1% 刻み。対象: 単勝・複勝・馬連・馬単・ワイド・3連複・3連単
+  無オッズ系  買い方（軸流し・BOX など）× 人気との混合 λ × 軸の確率 ≥ x（x = 0〜80% を 1% 刻み）。枠連・枠単もここだけ
 評価
-  選択期間 fold 2〜5（2020〜2023）をまとめ、開催日単位のブロックブートストラップ（B 回）で ROI の分布を作る。
-  条件: ブートストラップ中央値 ≥ 1 かつ ベット 200 レース以上。条件を満たすものの中で CI 下限（2.5%）が最大。満たすものが無ければ「採用なし」。
-  OOS（2024-02〜）は選択に使わず、選んだ戦略の確認だけに使う（OOS は 2026-10-17 に一度開封済みなので、真の未見データではない）。
+  選択期間 fold 2〜5（2020〜2023）をまとめ、開催日単位のブロックブートストラップで ROI の分布を作る。
+  1) 全候補を B_SCREEN 回で評価 → 2) 条件（中央値 ≥ 1、ベット 200 レース以上）を満たすものの CI 下限の上位 TOP_REFINE 個を
+  B_REFINE 回で再評価 → 3) その中で CI 下限が最大のものを採用。満たすものが無ければ「採用なし」。
+  OOS（2024-02〜）は選択に使わない（strategy_ci_oos.py が確認だけする。OOS は 2026-10-17 に一度開封済み）。
+注意: 候補が多いほど「CI 下限が最大」の選択は検証期間に過適合する（最良を選ぶ勝者の呪い）。OOS の確認で必ず見る。
 出力: artifacts/ci_select/{candidates_<券種>.csv, selected.csv}
 """
 
@@ -28,10 +30,12 @@ OUT = ROOT / "artifacts/ci_select"
 PAYOUT = ROOT / "artifacts/payout_ev"
 OOSD = ROOT / "artifacts/strategy_ens/oos"
 EVBETS = ("win", "place", "quinella", "exacta", "wide", "trio", "trifecta")
-T_GRID = (1.0, 1.2, 1.5, 2.0, 2.5, 3.0)
-P_GRID = (0.0, 0.02, 0.05, 0.10, 0.20, 0.30, 0.40)
-B = 3000
+T_GRID = np.round(np.arange(1.0, 10.0001, 0.1), 1)
+P_GRID = np.round(np.arange(0.0, 0.6001, 0.01), 2)
+X_GRID = np.round(np.arange(0.0, 0.8001, 0.01), 2)
+B_SCREEN, B_REFINE, TOP_REFINE = 1000, 10000, 40
 MIN_RACES = 200
+MIN_DAYS = 20
 FOLDS = (2, 3, 4, 5)
 
 
@@ -42,51 +46,82 @@ def day_map() -> pd.Series:
     return pd.to_datetime(m)
 
 
-def boot(day_ret: np.ndarray, day_stake: np.ndarray, rng) -> tuple[float, float, float, float]:
-    """日単位ブートストラップ。ROI の (点推定, 中央値, 2.5%, 97.5%)。"""
-    n = len(day_ret)
-    idx = rng.integers(0, n, size=(B, n))
-    bs = day_ret[idx].sum(1) / day_stake[idx].sum(1)
-    return (float(day_ret.sum() / day_stake.sum()), float(np.median(bs)),
-            float(np.quantile(bs, .025)), float(np.quantile(bs, .975)))
+def boot(dr: np.ndarray, dn: np.ndarray, rng, b: int) -> tuple[float, float, float, float]:
+    """日単位ブートストラップ。ROI の (点推定, 中央値, 2.5%, 97.5%)。dr = 日ごとの払戻、dn = 日ごとの賭け額。"""
+    n = len(dr)
+    idx = rng.integers(0, n, size=(b, n))
+    bs = dr[idx].sum(1) / dn[idx].sum(1)
+    return float(dr.sum() / dn.sum()), float(np.median(bs)), float(np.quantile(bs, .025)), float(np.quantile(bs, .975))
 
 
-def summarize(df: pd.DataFrame, days: pd.Series, stake_per_ticket: float, rng) -> dict | None:
-    """df: 選ばれたチケット（race_id, ret[払戻の倍率 or 円], n=点数）。"""
-    if df.empty:
-        return None
-    g = df.assign(day=df["race_id"].map(days)).groupby("day").agg(ret=("ret", "sum"), n=("n", "sum"))
-    races = df["race_id"].nunique()
-    if races < MIN_RACES or len(g) < 20:
-        return None
-    pt, med, lo, hi = boot(g["ret"].to_numpy(float), g["n"].to_numpy(float) * stake_per_ticket, rng)
-    hit = float(df.groupby("race_id")["ret"].sum().gt(0).mean())
-    return {"roi": pt, "boot_median": med, "ci_lo": lo, "ci_hi": hi, "races": races,
-            "tickets": int(df["n"].sum()), "days": len(g), "hit_rate": hit}
+class Keeper:
+    """中央値 ≥ 1 の候補のうち CI 下限の上位だけを、再評価用の配列つきで持つ。"""
+
+    def __init__(self, k: int) -> None:
+        self.k, self.items = k, []
+
+    def add(self, lo: float, params: dict, dr: np.ndarray, dn: np.ndarray) -> None:
+        if len(self.items) < self.k or lo > self.items[-1][0]:
+            self.items.append((lo, params, dr, dn))
+            self.items.sort(key=lambda z: -z[0])
+            del self.items[self.k:]
 
 
-def ev_family(bt: str, rng, days: pd.Series) -> pd.DataFrame:
+def evaluate(dc, rc, ret, stake, fold, D, rng, extra: dict, keep: Keeper, rows: list) -> bool:
+    """選ばれた行の配列から指標を出して rows に積む。ベットが足りなければ False（これより絞ると増えないので打ち切れる）。"""
+    ur = np.unique(rc)
+    if len(ur) < MIN_RACES:
+        return False
+    dr = np.bincount(dc, weights=ret, minlength=D)
+    dn = np.bincount(dc, weights=stake, minlength=D)
+    m = dn > 0
+    if m.sum() < MIN_DAYS:
+        return False
+    dr, dn = dr[m], dn[m]
+    pt, med, lo, hi = boot(dr, dn, rng, B_SCREEN)
+    hit = float((np.bincount(rc, weights=ret) > 0).sum() / len(ur))
+    pf = [float(ret[fold == f].sum() / stake[fold == f].sum()) for f in FOLDS if (fold == f).any()]
+    rows.append({**extra, "roi": pt, "boot_median": med, "ci_lo": lo, "ci_hi": hi, "races": len(ur),
+                 "tickets": float(stake.sum()), "days": int(m.sum()), "hit_rate": hit,
+                 "min_fold_roi": min(pf), "folds": len(pf)})
+    if med >= 1.0:
+        keep.add(lo, extra, dr, dn)
+    return True
+
+
+def ev_family(bt: str, rng, days: pd.Series, keep: Keeper) -> list:
     d = pd.read_parquet(PAYOUT / f"combos_{bt}.parquet", columns=["race_id", "p_ens", "ev", "ret", "fold"])
-    d = d[(d["ev"] >= min(T_GRID)) & d["fold"].isin(FOLDS)]
-    rows = []
-    for t in T_GRID:
-        for p in P_GRID:
-            s = d[(d["ev"] >= t) & (d["p_ens"] >= p)]
-            if s.empty:
-                continue
-            for mode in ("top1", "all"):
-                sel = s.sort_values("ev", ascending=False).drop_duplicates("race_id") if mode == "top1" else s
-                sel = sel.assign(n=1)
-                r = summarize(sel[["race_id", "ret", "n"]], days, 1.0, rng)
-                if r:
-                    per_fold = sel.groupby("fold").apply(lambda x: x["ret"].sum() / len(x), include_groups=False)
-                    rows.append({"family": "EV", "t": t, "p_min": p, "mode": mode, **r,
-                                 "min_fold_roi": float(per_fold.min()), "folds": len(per_fold)})
-    return pd.DataFrame(rows)
+    d = d[(d["ev"] >= T_GRID[0]) & d["fold"].isin(FOLDS)].sort_values("ev", ascending=False)
+    rc, uni = pd.factorize(d["race_id"])
+    dcodes, _ = pd.factorize(days.reindex(uni))
+    dc_all = dcodes[rc]
+    D = int(dcodes.max()) + 1
+    ev, p, ret, fold = d["ev"].to_numpy(), d["p_ens"].to_numpy(), d["ret"].to_numpy(float), d["fold"].to_numpy()
+    rows: list = []
+    for pm in P_GRID:
+        mk = p >= pm
+        if mk.sum() < MIN_RACES:
+            break
+        e, r_, rt, fo, dcm = ev[mk], rc[mk], ret[mk], fold[mk], dc_all[mk]
+        neg = -e
+        for t in T_GRID:
+            k = int(np.searchsorted(neg, -t, side="right"))          # ev >= t の先頭 k 行
+            if k < MIN_RACES:
+                break
+            ur, first = np.unique(r_[:k], return_index=True)
+            if len(ur) < MIN_RACES:
+                break
+            ok = evaluate(dcm[:k], r_[:k], rt[:k], np.ones(k), fo[:k], D, rng,
+                          {"family": "EV", "t": float(t), "p_min": float(pm), "mode": "all"}, keep, rows)
+            if first.size >= MIN_RACES:
+                evaluate(dcm[first], r_[first], rt[first], np.ones(len(first)), fo[first], D, rng,
+                         {"family": "EV", "t": float(t), "p_min": float(pm), "mode": "top1"}, keep, rows)
+            if not ok:
+                break
+    return rows
 
 
-def free_family(bt: str, rng, days: pd.Series, meta: pd.DataFrame) -> pd.DataFrame:
-    rows = []
+def free_family(bt: str, rng, days: pd.Series, meta: pd.DataFrame, keep: Keeper) -> list:
     parts = []
     for lam in R.LAMBDAS:
         rl = pd.read_parquet(S.OUT / f"race_level_lam{lam}.parquet")
@@ -97,20 +132,33 @@ def free_family(bt: str, rng, days: pd.Series, meta: pd.DataFrame) -> pd.DataFra
         parts.append(rl.assign(lam=lam))
     rl = pd.concat(parts, ignore_index=True).join(meta[["fold"]], on="race_id")
     rl = rl[rl["fold"].isin(FOLDS)]
+    rows: list = []
     for (name, lam), g in rl.groupby(["structure", "lam"]):
-        for x in R.X_GRID:
-            s = g[g["p1"] >= x]
-            r = summarize(s[["race_id", "ret", "n"]], days, 100.0, rng)
-            if r:
-                pf = s.groupby("fold").apply(lambda z: z["ret"].sum() / (100.0 * z["n"].sum()), include_groups=False)
-                rows.append({"family": "無オッズ", "structure": name, "lam": lam, "x": x, **r,
-                             "min_fold_roi": float(pf.min()), "folds": len(pf)})
-    return pd.DataFrame(rows)
+        g = g.sort_values("p1", ascending=False)
+        rc, uni = pd.factorize(g["race_id"])
+        dcodes, _ = pd.factorize(days.reindex(uni))
+        dc = dcodes[rc]
+        D = int(dcodes.max()) + 1
+        p1, ret, n, fold = g["p1"].to_numpy(), g["ret"].to_numpy(float), g["n"].to_numpy(float) * 100.0, g["fold"].to_numpy()
+        neg = -p1
+        for x in X_GRID:
+            k = int(np.searchsorted(neg, -x, side="right"))
+            if k < MIN_RACES:
+                break
+            if not evaluate(dc[:k], rc[:k], ret[:k], n[:k], fold[:k], D, rng,
+                            {"family": "無オッズ", "structure": name, "lam": float(lam), "x": float(x)}, keep, rows):
+                break
+    return rows
 
 
-def pick(c: pd.DataFrame) -> pd.Series | None:
-    ok = c[(c["boot_median"] >= 1.0)]
-    return None if ok.empty else ok.sort_values("ci_lo", ascending=False).iloc[0]
+def refine(keep: Keeper, rng) -> pd.Series | None:
+    """上位候補を B_REFINE 回で再評価し、中央値 ≥ 1 のうち CI 下限が最大のものを返す。"""
+    best = None
+    for _, params, dr, dn in keep.items:
+        pt, med, lo, hi = boot(dr, dn, rng, B_REFINE)
+        if med >= 1.0 and (best is None or lo > best["ci_lo"]):
+            best = pd.Series({**params, "roi": pt, "boot_median": med, "ci_lo": lo, "ci_hi": hi})
+    return best
 
 
 def main() -> int:
@@ -121,26 +169,32 @@ def main() -> int:
     meta = win.drop_duplicates("race_id").set_index("race_id")[["fold", "race_date"]]
     sel_rows = []
     for bt in ("win", "place", "quinella", "exacta", "wide", "trio", "trifecta", "bracket_q", "bracket_e"):
-        parts = []
-        if bt in EVBETS:
-            parts.append(ev_family(bt, rng, days))
-        parts.append(free_family(bt, rng, days, meta))
-        c = pd.concat([p for p in parts if len(p)], ignore_index=True)
+        keep = Keeper(TOP_REFINE)
+        rows = ev_family(bt, rng, days, keep) if bt in EVBETS else []
+        rows += free_family(bt, rng, days, meta, keep)
+        c = pd.DataFrame(rows)
         c.to_csv(OUT / f"candidates_{bt}.csv", index=False)
-        best = pick(c)
-        n_ok = int((c["boot_median"] >= 1.0).sum())
-        top_by_lo = c.sort_values("ci_lo", ascending=False).iloc[0]
+        n_ok = int((c["boot_median"] >= 1.0).sum()) if len(c) else 0
+        best = refine(keep, rng)
         rec = {"bet": R.BET_JP[bt], "候補数": len(c), "中央値≥1の数": n_ok,
-               "全候補の最大CI下限": float(top_by_lo["ci_lo"])}
+               "全候補の最大CI下限": float(c["ci_lo"].max()) if len(c) else float("nan")}
         if best is not None:
-            rec.update({k: best.get(k) for k in ("family", "structure", "lam", "x", "t", "p_min", "mode", "roi",
-                                                 "boot_median", "ci_lo", "ci_hi", "races", "tickets", "hit_rate",
-                                                 "min_fold_roi")})
+            mask = pd.Series(True, index=c.index)
+            for key in ("family", "t", "p_min", "mode", "structure", "lam", "x"):
+                if key in c.columns:
+                    mask &= c[key].isna() if pd.isna(best.get(key)) else (c[key] == best[key])
+            full = c[mask]
+            extra = full.iloc[0] if len(full) else {}
+            rec.update({k: best.get(k) for k in ("family", "structure", "lam", "x", "t", "p_min", "mode", "roi", "boot_median",
+                                                 "ci_lo", "ci_hi")})
+            for k in ("races", "tickets", "hit_rate", "min_fold_roi"):
+                rec[k] = extra[k] if len(full) else float("nan")
         sel_rows.append(rec)
-        print(R.BET_JP[bt], "候補", len(c), "中央値≥1", n_ok, "→", "採用なし" if best is None else
+        print(R.BET_JP[bt], "候補", len(c), "中央値≥1", n_ok, "→",
+              "採用なし" if best is None else
               f"{best['family']} ROI {best['roi']:.3f} CI[{best['ci_lo']:.3f},{best['ci_hi']:.3f}] "
               f"{best.get('structure', '')} λ={best.get('lam')} x={best.get('x')} t={best.get('t')} "
-              f"p>={best.get('p_min')} {best.get('mode', '')} 賭{best['races']}R", flush=True)
+              f"p>={best.get('p_min')} {best.get('mode', '')} 賭{rec.get('races')}R", flush=True)
     pd.DataFrame(sel_rows).to_csv(OUT / "selected.csv", index=False)
     return 0
 
