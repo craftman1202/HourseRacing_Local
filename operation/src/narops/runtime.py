@@ -184,7 +184,7 @@ class BetBundle:
     meta: dict
 
 
-def load_bet_bundle(release) -> BetBundle | None:
+def load_bet_bundle(release, rules_file: "Path | None" = None) -> BetBundle | None:
     path = Path(release.path)
     f = path / "payout_meta.json"
     if not f.exists():
@@ -194,6 +194,17 @@ def load_bet_bundle(release) -> BetBundle | None:
     from .shared import EvRule, PayoutModel, Rule
 
     meta = json.loads(f.read_text(encoding="utf-8"))
+    # 買い目の規則（方針）はリリース（モデルの配布物）ではなく conf/bet_rules.yaml が優先する。
+    # 配布物は sha256 で固定されていて、規則を変えるたびにリリースを作り直したくないため。
+    from .config import CONF_DIR
+
+    rules_file = rules_file or CONF_DIR / "bet_rules.yaml"
+    if rules_file.exists():
+        import yaml
+
+        over = yaml.safe_load(rules_file.read_text(encoding="utf-8")) or {}
+        meta["ev_rules"] = over.get("ev_rules", [])
+        meta["odds_free_rules"] = over.get("odds_free_rules", [])
     payout = {bt: PayoutModel(bt, lgb.Booster(model_file=str(path / m["file"])), float(m["smear"]))
               for bt, m in meta["models"].items()}
     odds_free = [Rule(structure=r["structure"], lam=float(r["lam"]), min_p=float(r["min_p"]),
@@ -201,7 +212,8 @@ def load_bet_bundle(release) -> BetBundle | None:
                       standalone=bool(r.get("standalone", True)))
                  for r in meta.get("odds_free_rules", [])]
     ev_rules = [EvRule(bet=r["bet"], t=float(r["t"]), mode=r.get("mode", "top1"),
-                       stake=bool(r.get("stake", True)), note=str(r.get("note", "")))
+                       stake=bool(r.get("stake", True)), note=str(r.get("note", "")),
+                       p_min=float(r.get("p_min", 0.0)))
                 for r in meta.get("ev_rules", [])]
     return BetBundle(odds_free, ev_rules, payout, meta["pop_table"], meta)
 

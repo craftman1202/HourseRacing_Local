@@ -66,7 +66,7 @@ def bets(tmp_path):
             "odds_free_rules": [{"structure": "単勝 1位", "lam": 0.5, "min_p": 0.3},
                                 {"structure": "枠連 1点", "lam": 0.0, "min_p": 0.3}]}
     (tmp_path / "payout_meta.json").write_text(json.dumps(meta), encoding="utf-8")
-    return load_bet_bundle(_Rel(tmp_path))
+    return load_bet_bundle(_Rel(tmp_path), rules_file=tmp_path / "none.yaml")
 
 
 class _Scorer:
@@ -142,3 +142,34 @@ def test_records_one_row_per_plan(wh, clock):
     got = wh.query("SELECT horse_no, bet_type, stake_yen FROM bet_candidate WHERE race_date = ?",
                    [date(2026, 10, 18)])
     assert got.to_dict("records") == [{"horse_no": 2, "bet_type": "3連複", "stake_yen": 100}]
+
+
+def test_rules_file_overrides_the_release_rules(tmp_path):
+    """方針（買い目の規則）は conf/bet_rules.yaml が配布物より優先する。"""
+    (tmp_path / "payout_meta.json").write_text(json.dumps(
+        {"models": {}, "pop_table": {}, "ev_rules": [{"bet": "trio", "t": 2.0}], "odds_free_rules": []}))
+    rules = tmp_path / "r.yaml"
+    rules.write_text("ev_rules:\n- {bet: win, t: 1.5, p_min: 0.05, mode: all}\nodds_free_rules:\n- {structure: 枠単 1点, lam: 0.0, min_p: 0.6}\n")
+    b = load_bet_bundle(_Rel(tmp_path), rules_file=rules)
+    assert [(r.bet, r.t, r.p_min, r.mode) for r in b.ev_rules] == [("win", 1.5, 0.05, "all")]
+    assert [r.structure for r in b.odds_free] == ["枠単 1点"]
+
+
+def test_probability_floor_removes_long_shot_tickets(release_dir, cfg, bets):
+    """EV が高くても的中確率が足切り未満の組は買わない。"""
+    from dataclasses import replace
+    loose = replace(bets, ev_rules=[r for r in bets.ev_rules if r.bet == "trio"], odds_free=[])
+    strict = replace(loose, ev_rules=[replace(r, p_min=0.9) for r in loose.ev_rules])
+    assert _infer(release_dir, cfg, loose, [9.0, 1.6, 4.0, 7.0, 6.0, 12.0]).exotic
+    assert _infer(release_dir, cfg, strict, [9.0, 1.6, 4.0, 7.0, 6.0, 12.0]).exotic == []
+
+
+def test_repo_bet_rules_file_is_valid_and_has_a_cutoff_story():
+    import yaml
+    from narops.config import CONF_DIR
+    from narops.shared import recommend_structures
+
+    d = yaml.safe_load((CONF_DIR / "bet_rules.yaml").read_text(encoding="utf-8"))
+    assert {r["bet"] for r in d["ev_rules"]} <= {"win", "place", "quinella", "exacta", "wide", "trio", "trifecta"}
+    assert all(r["mode"] in ("all", "top1") and r["t"] >= 1.0 and 0 <= r["p_min"] < 1 for r in d["ev_rules"])
+    assert all(r["structure"] in recommend_structures() for r in d["odds_free_rules"])

@@ -293,6 +293,8 @@ def _plan_block(pl, names: dict) -> str:
     head = f"🎯 **{pl.bet_type}**（{pl.structure}）"
     if pl.bet_type in ("枠連", "枠単"):
         who = f"　軸馬 {_horse(pl.axis, names)} の枠 ／ 相手 {_horse(pl.partners[0], names) + ' の枠' if pl.partners else '—'}"
+    elif pl.bet_type in ("単勝", "複勝"):
+        who = "　対象 " + "、".join(_horse(t[0], names) for t in pl.tickets)
     elif len(pl.tickets) == 1 and len(pl.tickets[0]) == 1:
         who = f"　軸 {_horse(pl.axis, names)}（勝率 {pl.p_axis * 100:.0f}%）"
     else:

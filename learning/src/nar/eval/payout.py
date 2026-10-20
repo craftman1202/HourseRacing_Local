@@ -136,6 +136,7 @@ class EvRule:
     stake: bool = True
     note: str = ""
     standalone: bool = True
+    p_min: float = 0.0        # 的中確率（組の p_ens）の足切り。これ未満の組は EV が高くても買わない
 
 
 def ev_plans(horse_no, p_ens, p_pop, popularity, track: int, models: dict[str, PayoutModel],
@@ -154,7 +155,7 @@ def ev_plans(horse_no, p_ens, p_pop, popularity, track: int, models: dict[str, P
         tk = race_tickets(r.bet, horse_no, p_ens, p_pop, popularity, track, m)
         if tk.empty:
             continue
-        sel = tk[tk["ev"] >= r.t].sort_values("ev", ascending=False)
+        sel = tk[(tk["ev"] >= r.t) & (tk["p_ens"] >= r.p_min)].sort_values("ev", ascending=False)
         if sel.empty:
             continue
         if r.mode == "top1":
