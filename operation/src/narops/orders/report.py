@@ -52,5 +52,8 @@ class DiscordReporter:
     def skip_all(self, plan: OrderPlan, why: str) -> None:
         self._send(f"⏭ 見送り  {plan.track_name} {plan.race_no}R（全券種）", f"理由: {why}", COLOR_GREY)
 
+    def problem(self, title: str, desc: str) -> None:
+        self._send(f"⚠ {title}", desc, COLOR_YELLOW)
+
     def halt(self, n: int) -> None:
         self._send("🛑 発注を停止しました", f"連続エラー {n} 回。原因を確認し、ランナーを再起動するまで発注しません。", COLOR_YELLOW)

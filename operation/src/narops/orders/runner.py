@@ -104,11 +104,15 @@ def process(plan: OrderPlan, limits: Limits, ledger: Ledger, driver: Driver, rep
 def load_plans(date: str, bucket: str, project: str | None) -> list[OrderPlan]:
     from google.cloud import storage
 
+    from google.cloud.storage.retry import DEFAULT_RETRY
+
+    # 通信が一瞬切れたときに 2 分待たない（発注の時間窓は約 7 分）。20 秒で諦めて次の巡回でやり直す
+    retry = DEFAULT_RETRY.with_deadline(20)
     client = storage.Client(project=project)
     out = []
-    for b in client.list_blobs(bucket, prefix=f"{PREFIX}/{date}/"):
+    for b in client.list_blobs(bucket, prefix=f"{PREFIX}/{date}/", timeout=10, retry=retry):
         try:
-            out.append(OrderPlan.from_json(b.download_as_text()))
+            out.append(OrderPlan.from_json(b.download_as_text(timeout=10, retry=retry)))
         except Exception as exc:  # noqa: BLE001
             log.warning("発注計画を読めません %s: %s", b.name, exc)
     return sorted(out, key=lambda p: p.start_ts)
@@ -151,13 +155,25 @@ def main() -> int:
     driver = RakutenDriver()
     report.started(limits, is_live(limits))
     try:
+        fails = 0
         while True:
-            now = datetime.now(timezone.utc)
-            day = now.astimezone().strftime("%Y-%m-%d")
-            plans = ([OrderPlan.from_json(Path(a.plan_file).read_text(encoding="utf-8"))] if a.plan_file
-                     else load_plans(day, bucket, os.environ.get("NAROPS_PROJECT", "sample-335613")))
-            for plan in plans:
-                process(plan, limits, ledger, driver, report, now, errors, kill_files)
+            try:
+                now = datetime.now(timezone.utc)
+                day = now.astimezone().strftime("%Y-%m-%d")
+                plans = ([OrderPlan.from_json(Path(a.plan_file).read_text(encoding="utf-8"))] if a.plan_file
+                         else load_plans(day, bucket, os.environ.get("NAROPS_PROJECT", "sample-335613")))
+                for plan in plans:
+                    process(plan, limits, ledger, driver, report, now, errors, kill_files)
+                fails = 0
+            except Exception as exc:  # noqa: BLE001
+                # 通信エラーなどで落ちない（落ちると systemd の再起動待ちで時間窓を失う）。次の巡回でやり直す。
+                if a.once:
+                    raise
+                fails += 1
+                log.warning("巡回に失敗しました（%d 回目）: %s: %s", fails, type(exc).__name__, str(exc)[:160])
+                if fails == 6:                       # 約 2 分続いたら一度だけ知らせる
+                    report.problem("発注計画を読めない状態が続いています",
+                                   f"{type(exc).__name__}: {str(exc)[:200]}\n通信が戻れば自動で再開します。")
             if a.once:
                 break
             time.sleep(a.interval)

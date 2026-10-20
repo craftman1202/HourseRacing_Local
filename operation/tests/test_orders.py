@@ -261,3 +261,28 @@ def test_pending_counts_toward_the_loss(tmp_path):
     _, drv, _ = _run(_plan(), _limits(daily_loss_cap_yen=1000), tmp_path, START - timedelta(minutes=8),
                      driver=FakeDriver(balance_yen=10_000), ledger=led)
     assert [c[1] for c in drv.calls] == ["複勝"]
+
+
+def test_runner_survives_a_failing_poll_and_keeps_going(tmp_path, monkeypatch):
+    """GCS の通信エラーで落ちない（2026-10-20 に 1 回落ちた）。次の巡回で拾う。"""
+    from narops.orders import runner
+
+    calls = {"n": 0}
+    good = _plan()
+
+    def flaky(date, bucket, project):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("storage.googleapis.com read timed out")
+        return [good]
+
+    seen = []
+    monkeypatch.setattr(runner, "load_plans", flaky)
+    monkeypatch.setattr(runner, "process", lambda *a, **k: seen.append(a[0].race_id))
+    monkeypatch.setattr(runner.time, "sleep", lambda s: (_ for _ in ()).throw(KeyboardInterrupt()) if calls["n"] >= 2 else None)
+    monkeypatch.setattr("sys.argv", ["runner", "--no-discord", "--conf", str(tmp_path / "c.yaml"), "--ledger", str(tmp_path / "l.sqlite"), "--name", "t"])
+    (tmp_path / "c.yaml").write_text("live: false\nbet_types: []\n")
+    monkeypatch.setattr("narops.orders.rakuten.RakutenDriver", FakeDriver)
+    with pytest.raises(KeyboardInterrupt):
+        runner.main()
+    assert calls["n"] == 2 and seen == [good.race_id]            # 1回目の失敗の後、2回目で処理した
