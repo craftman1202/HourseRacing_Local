@@ -173,3 +173,15 @@ def test_repo_bet_rules_file_is_valid_and_has_a_cutoff_story():
     assert {r["bet"] for r in d["ev_rules"]} <= {"win", "place", "quinella", "exacta", "wide", "trio", "trifecta"}
     assert all(r["mode"] in ("all", "top1") and r["t"] >= 1.0 and 0 <= r["p_min"] < 1 for r in d["ev_rules"])
     assert all(r["structure"] in recommend_structures() for r in d["odds_free_rules"])
+
+
+def test_no_plans_means_no_notification_even_if_win_ev_looks_high():
+    """全券種の買い目の版では、規則に合う買い目が無いレースは通知しない。
+    （以前は旧来の「単勝 EV ≥ 基準」の通知に切り替わって出ていた。発注されないのに買い目らしく見える）"""
+    cand = pd.DataFrame({"horse_no": [1, 2], "p_win": [0.5, 0.3], "p_top3": [0.8, 0.6],
+                         "ev_adjusted": [1.6, 1.2], "stake_yen": [0, 0]})
+    kw = dict(race_id="R", track_name="笠松", race_no=3, class_name="C1", distance=1400,
+              start_ts=to_utc(START), now=to_utc(START) - timedelta(minutes=10),
+              model_release="v", track_used="A+B", candidates=cand, min_ev=1.05, exotic=[])
+    assert race_embed(**kw) is not None                    # 旧来の経路（ばんえいなど）は従来どおり
+    assert race_embed(**kw, plans_only=True) is None       # 全券種の買い目の版は、買い目が無ければ出さない

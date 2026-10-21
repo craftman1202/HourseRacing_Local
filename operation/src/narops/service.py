@@ -667,6 +667,7 @@ def _deliver(svc: Services, race_id: str, row: pd.Series, res, day: date,
         now=svc.clock.now(), model_release=manifest.model_id,
         track_used=res.track_used, candidates=res.frame, horse_names=horse_names,
         exotic=getattr(res, "exotic", None),
+        plans_only=bool(bundle is not None and getattr(bundle, "bets", None) is not None),
         day_budget_remaining=day_budget_remaining(svc.wh, day, svc.cfg.max_bet_per_day),
         min_ev=svc.cfg.discord_min_ev)
     if embed is None:

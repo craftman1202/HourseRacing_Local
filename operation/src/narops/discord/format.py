@@ -87,9 +87,12 @@ def race_embed(
     start_ts: datetime, now: datetime, model_release: str, track_used: str,
     candidates: pd.DataFrame, horse_names: dict[int, str] | None = None,
     day_budget_remaining: int | None = None, pool_yen: float | None = None,
-    min_ev: float = 1.05, exotic: list | None = None,
+    min_ev: float = 1.05, exotic: list | None = None, plans_only: bool = False,
 ) -> Embed | None:
     """レース予測通知。
+
+    plans_only=True は全券種の買い目の版（BetBundle を持つリリース）。規則に合う買い目（exotic）が
+    あるレースだけ通知し、無ければ通知しない。旧来の「単勝 EV ≥ 基準」の通知へは落とさない。
 
     EV が閾値未満のレースは通知自体を省略する。1日60レースすべてを通知すると
     通知疲れで見なくなり、それが最大の運用リスク（設計書 §4.3）。
@@ -97,6 +100,8 @@ def race_embed(
     # 全券種の買い目（2026-10-17、全モデルアンサンブルのリリース）。BetPlan に structure があり、
     # 単勝・複勝 EV の表（ev_place）を持たない経路
     plans = [pl for pl in (exotic or []) if hasattr(pl, "structure")]
+    if plans_only and not plans:
+        return None
     if plans and "ev_place" not in candidates.columns:
         return _race_embed_plans(
             track_name=track_name, race_no=race_no, class_name=class_name, distance=distance,
