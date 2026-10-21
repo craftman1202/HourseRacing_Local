@@ -277,11 +277,10 @@ def _race_embed_plans(*, track_name, race_no, class_name, distance, start_ts, no
     for pl in sorted(plans, key=lambda x: order.get(x.bet_type, 99)):
         lines.append(_plan_block(pl, names))
     total = sum(int(pl.stake_yen) for pl in staked)
-    tail = [f"買い目合計 **{fmt_yen(total)}**"]
-    if day_budget_remaining is not None:
-        tail.append(f"本日残枠 {fmt_yen(day_budget_remaining)}")
-    lines.append("　".join(tail))
-    lines.append("_ペーパー運用。検証値は 2020〜2023 の walk-forward（オッズは予測払戻）_")
+    # 旧来の「本日残枠」（賭け額ベースの上限）は出さない。今の上限は PC のランナーが持つ「1日の損失」で、通知とは別
+    lines.append(f"買い目合計（提案）**{fmt_yen(total)}**")
+    lines.append("_検証値は 2020〜2023 の walk-forward（EV の払戻は予測値）。実際の発注は PC のランナーが行い、"
+                 "上限（1日の損失など）で見送ることがある。結果は別に通知_")
     return Embed(
         title=f"🏇 {track_name} {race_no}R  {class_name} {distance}m  "
               f"発走 {jst:%H:%M} (残り{remaining:.0f}分)",
