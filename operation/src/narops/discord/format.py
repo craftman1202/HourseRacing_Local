@@ -101,7 +101,10 @@ def race_embed(
     # 単勝・複勝 EV の表（ev_place）を持たない経路
     plans = [pl for pl in (exotic or []) if hasattr(pl, "structure")]
     if plans_only and not plans:
-        return None
+        return _race_embed_no_plan(
+            track_name=track_name, race_no=race_no, class_name=class_name, distance=distance,
+            start_ts=start_ts, now=now, model_release=model_release, track_used=track_used,
+            candidates=candidates, horse_names=horse_names)
     if plans and "ev_place" not in candidates.columns:
         return _race_embed_plans(
             track_name=track_name, race_no=race_no, class_name=class_name, distance=distance,
@@ -252,6 +255,24 @@ MAX_TICKET_LINES = 8
 
 def _horse(no: int, names: dict) -> str:
     return f"{no}番 {names.get(no, '')}".rstrip()
+
+
+def _race_embed_no_plan(*, track_name, race_no, class_name, distance, start_ts, now, model_release,
+                        track_used, candidates, horse_names) -> Embed:
+    """規則に合う買い目が無いレース。予想（勝率上位）だけ出し、「買い目なし＝発注しない」を明記する。"""
+    names = horse_names or {}
+    jst = to_jst(start_ts)
+    remaining = (start_ts - now).total_seconds() / 60.0
+    marks = "◎○▲△☆"
+    top = candidates.sort_values("p_win", ascending=False).head(5)
+    line = "　".join(f"{marks[i]}{int(r['horse_no'])} {names.get(int(r['horse_no']), '')} {fmt_pct(r['p_win'])}"
+                    for i, (_, r) in enumerate(top.iterrows()))
+    return Embed(
+        title=f"🏇 {track_name} {race_no}R  {class_name} {distance}m  発走 {jst:%H:%M} (残り{remaining:.0f}分)",
+        description=f"**予想（勝率）** {line}\n買い目なし（規則に合う買い目が無いので発注しない）",
+        color=COLOR_GREY,
+        footer=f"{model_release} / トラック{track_used}",
+    )
 
 
 def _race_embed_plans(*, track_name, race_no, class_name, distance, start_ts, now, model_release,

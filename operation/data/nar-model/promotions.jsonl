@@ -9,3 +9,5 @@
 {"at": "2026-09-18T00:01:15", "family": "flat", "actor": "integral.sekibundx (推論側の較正順序バグ修正: モデルごとの温度をアンサンブル前に適用するよう変更。モデル本体はv2026.09.17-Aと同一、manifestにmodel_temperaturesを追加しただけ)", "from": "v2026.09.17-A", "to": "v2026.09.17-C", "reason": "promotion nll=1.7931 ece=0.0037"}
 {"at": "2026-09-18T00:01:16", "family": "banei", "actor": "integral.sekibundx (推論側の較正順序バグ修正: モデルごとの温度をアンサンブル前に適用するよう変更。モデル本体はv2026.09.17-A-baneiと同一、manifestにmodel_temperaturesを追加しただけ)", "from": "v2026.09.17-A-banei", "to": "v2026.09.17-B-banei", "reason": "promotion nll=2.0032 ece=0.0100"}
 {"at": "2026-09-28T04:30:49", "family": "flat", "actor": "integral.sekibundx (複勝モデル追加・単勝モデルは-Cと同一)", "from": "v2026.09.17-C", "to": "v2026.09.27-A", "reason": "promotion nll=1.7931 ece=0.0037"}
+{"at": "2026-10-05T09:19:27", "family": "flat", "actor": "integral.sekibundx (乖離回帰モデル・平地のみ。OOS NLL は確定人気での評価値。ユーザー承認済み)", "from": "v2026.09.27-A", "to": "v2026.10.05-A", "reason": "promotion nll=1.6387 ece=0.0047"}
+{"at": "2026-10-17T22:13:08", "family": "flat", "actor": "integral.sekibundx (全モデルアンサンブル＋全券種の買い目。ユーザー指示)", "from": "v2026.10.05-A", "to": "v2026.10.18-A", "reason": "promotion nll=1.5986 ece=0.0014"}
