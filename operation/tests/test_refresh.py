@@ -331,3 +331,17 @@ def test_main_requires_ingest_store_env_var(monkeypatch):
     monkeypatch.delenv("NAROPS_INGEST_STORE", raising=False)
     with pytest.raises(RuntimeError, match="NAROPS_INGEST_STORE"):
         refresh.main()
+
+
+def test_daily_refresh_fails_when_a_month_could_not_be_fetched(tmp_path, wh, clock, monkeypatch):
+    """取得に失敗した月があるのに「0 行 merge で成功」にしない。永続化先も書き換えない。"""
+    from nar.ingest.monthly import FetchOutcome
+
+    def failing(client, store, manifest, *a, **k):
+        return [FetchOutcome("monthly/race/2026-10", "error", error="302 Found")]
+
+    monkeypatch.setattr("nar.ingest.monthly.backfill", failing)
+    persist = tmp_path / "persist"
+    with pytest.raises(RuntimeError, match="取得に失敗.*2026-10"):
+        refresh.daily_refresh(wh=wh, clock=clock, workdir=tmp_path / "w", persist_root=f"file://{persist}")
+    assert not (persist / "meta" / "manifest.duckdb").exists()

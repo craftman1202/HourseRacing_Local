@@ -471,6 +471,12 @@ def daily_refresh(*, wh: Any, clock: Clock, workdir: Path, persist_root: str,
                            int(dcfg["backfill"]["finalize_after_days"]), kind="race")
     finally:
         client.close()
+    failed = [f for f in fetched if f.status == "error"]
+    if failed:
+        # 取得に失敗した月があるのに「0 行 merge で成功」にしない（2026-10-22: 302 を握りつぶして
+        # 確定層が 1 日更新されなかった）。書き戻す前に落とすので、次回は素直にやり直す
+        manifest.close()
+        raise RuntimeError("月次ファイルの取得に失敗: " + "; ".join(f"{f.file_key}: {f.error}" for f in failed))
     finalize_pass(manifest, today, int(dcfg["backfill"]["finalize_after_days"]))
 
     n_tables = run_bronze(store, manifest)

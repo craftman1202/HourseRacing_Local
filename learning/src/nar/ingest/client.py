@@ -99,7 +99,10 @@ class NarClient:
             resp = self._client.get(url, params=params)
             last_status = resp.status_code
 
-            if resp.status_code in self.retry.statuses:
+            # 3xx も一時的な失敗として再試行する。リダイレクトは追わない設定なので、そのまま
+            # raise_for_status に任せると月次ダウンロードが静かに error 扱いになる
+            # （2026-10-22: Cloud Run から 302 が返り、その日の確定層が更新されなかった）
+            if resp.status_code in self.retry.statuses or 300 <= resp.status_code < 400:
                 if attempt > self.retry.max_attempts:
                     raise httpx.HTTPStatusError(
                         f"{url} が {resp.status_code} を {attempt} 回返しました",

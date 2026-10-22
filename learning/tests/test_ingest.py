@@ -311,3 +311,17 @@ def test_sg_unknown_kind_is_drift_not_autoregistration(tmp_path):
     cols = ",".join(f"c{i}" for i in range(10))
     with pytest.raises(SchemaDriftError, match="既知の schema_hash がありません"):
         reg.check(schema_of(cols + "\n", kind="odds"))
+
+
+def test_redirect_is_retried_not_swallowed(golden_zip):
+    """302 は一時的な失敗として再試行する（2026-10-22: 302 を握りつぶして確定層が更新されなかった）。"""
+    calls = []
+
+    def handler(req):
+        calls.append(1)
+        if len(calls) < 3:
+            return httpx.Response(302, headers={"location": "https://example.invalid/"})
+        return httpx.Response(200, content=golden_zip, headers={"content-type": "application/zip"})
+
+    res = client(handler, FakeClock()).fetch("https://example.invalid/x", {})
+    assert res.status_code == 200 and len(calls) == 3
