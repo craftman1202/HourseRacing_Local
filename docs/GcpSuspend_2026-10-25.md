@@ -7,20 +7,25 @@
 
 ## 1. 止めたもの
 
-| 区分 | 対象 | 状態 |
-|---|---|---|
-| PC | `nar-orders@main.service`（楽天の自動発注ランナー） | 停止＋自動起動を無効化 |
-| Cloud Scheduler | `nar-plan-day` / `nar-ingest-and-refresh` / `nar-refresh-daily` / `nar-weekly-report` | 削除（定義は下記と `gcp_snapshot_2026-10-25/`） |
-| Cloud Tasks | キュー `nar-queue` | 削除 |
-| Cloud Run サービス | `nar-ops`（4Gi / 2CPU）、`nar-api`、`nar-web` | 削除 |
-| Cloud Run ジョブ | `nar-refresh`（16Gi / 4CPU） | 削除 |
-| Artifact Registry | リポジトリ `nar-ops` / `nar-api` / `nar-web`（イメージ） | 削除 |
-| Cloud Storage | `nar-raw-sample-335613`（約 3GB）、`nar-model-sample-335613`（約 0.1GB） | 削除 |
-| BigQuery | データセット `nar_ops`（12 表、約 1.2GB） | 削除 |
-| **残すもの** | サービスアカウント `nar-ops@` / `nar-api@` / `nar-web@` とその IAM、Secret Manager の秘密情報 | 費用はほぼゼロ。秘密情報は消すと再作成できない（Discord の Webhook URL、Google サインインの ID/Secret） |
+方針（ユーザー指示）: **止めておいても費用がかからないものは削除せず停止、費用がかかるものは削除**。
 
-残す秘密情報: `AUTH_SECRET` / `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`（nar-web）、`DISCORD_WEBHOOK_ALERT` / `_DAILY` / `_PREDICTION`、`discord-webhook`。
-Secret Manager は有効なバージョン 6 個までが無料枠（請求先アカウント単位）。同居する他系統の分と合わせて超えると、1 バージョンあたり月 $0.06。
+| 区分 | 対象 | 状態 | 理由 |
+|---|---|---|---|
+| PC | `nar-orders@main.service`（楽天の自動発注ランナー） | 停止＋自動起動を無効化 | |
+| Cloud Scheduler | `nar-plan-day` / `nar-ingest-and-refresh` / `nar-refresh-daily` / `nar-weekly-report` | **削除**（定義は `gcp_snapshot_2026-10-25/`） | 一時停止中でもジョブ数に課金される（無料は 3 件まで） |
+| Cloud Tasks | キュー `nar-queue` | 空にして**一時停止**（残す） | 費用なし |
+| Cloud Run サービス | `nar-ops` / `nar-api` / `nar-web` | **残す**（最小インスタンス 0 で待機）。ただしイメージは消したので起動できない | 費用なし |
+| Cloud Run ジョブ | `nar-refresh` | **残す**（実行しない）。イメージは消した | 費用なし |
+| Artifact Registry | リポジトリ `nar-ops` / `nar-api` / `nar-web`（イメージ約 2.5GB） | **削除** | 保管料 |
+| Cloud Storage | `nar-raw-sample-335613`（約 3GB）、`nar-model-sample-335613`（約 0.1GB） | **削除（ユーザーが実行）** | 保管料 |
+| BigQuery | データセット `nar_ops`（12 表、約 1.2GB） | **削除（ユーザーが実行）** | 無料枠（請求先ごと 10GB）を他系統で超えているか確認できない |
+| 残すもの | サービスアカウント `nar-ops@` / `nar-api@` / `nar-web@` と IAM | 残す | 費用なし |
+| 残すもの | Secret Manager の `AUTH_SECRET` / `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`（nar-web）、`DISCORD_WEBHOOK_ALERT` / `_DAILY` / `_PREDICTION` | **残す** | 値を控えられなかったので消せない。有効バージョン 6 個までが無料枠だが、他系統の分と合わせて超えている可能性が高く、1 バージョン月 $0.06（計 約 $0.36） |
+
+費用をさらにゼロにするなら、上の Secret Manager の 6 個を消す。再作成が必要になるもの:
+Discord の Webhook URL は `operation/.env`（`DISCORD_WEBHOOK_*`）に写しがある。`AUTH_SECRET` は乱数（`openssl rand -base64 32`）で作り直せる。
+`AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` は Google Cloud の「API とサービス → 認証情報」の OAuth クライアントから取得する。
+消したら、(D) の前に `gcloud secrets create <名前> --data-file=-` で作り直す。
 
 ## 2. バックアップ（消す前に取ったもの）
 
@@ -54,6 +59,9 @@ gcloud services enable run.googleapis.com cloudscheduler.googleapis.com cloudtas
 
 ### (A) 資源を作る
 
+削除していない資源（Cloud Run のサービス・ジョブ、Cloud Tasks のキュー、サービスアカウント、Secret Manager）は作り直し不要。
+キューは一時停止中なので `gcloud tasks queues resume nar-queue --location=$R --project=$P` で戻す。
+
 ```bash
 # Artifact Registry（3 つ）
 for r in nar-ops nar-api nar-web; do
@@ -64,9 +72,8 @@ done
 # ingest-store/entity_cache/ は 7 日で削除。model: 90 日で Nearline）
 gcloud storage buckets create gs://nar-raw-sample-335613 gs://nar-model-sample-335613 --location=$R --project=$P
 
-# Cloud Tasks のキュー（設定は gcp_snapshot_2026-10-25/queue_nar-queue.yaml）
-gcloud tasks queues create nar-queue --location=$R --project=$P \
-  --max-attempts=3 --min-backoff=30s --max-backoff=270s --max-doublings=16
+# Cloud Tasks のキューを消してしまっていた場合のみ（設定は gcp_snapshot_2026-10-25/queue_nar-queue.yaml）
+# gcloud tasks queues create nar-queue --location=$R --project=$P --max-attempts=3 --min-backoff=30s --max-backoff=270s --max-doublings=16
 
 # BigQuery のデータセットと表（スキーマ・パーティションは operation/infra/bq/*.json、deploy.py の PARTITION_*）
 cd operation && PYTHONPATH=src:../learning/src python -m narops.cli init   # DWH を初期化
@@ -124,7 +131,8 @@ IAM はサービスアカウントを残しているので、そのまま使え�
 | 全部作り直す（(B)-2・(B)-3 を戻していない） | ジョブを 1 回実行。manifest が空なので全月を取得し、確定層も全履歴を入れる |
 
 ```bash
-# ジョブを作る（設定は gcp_snapshot_2026-10-25/job_nar-refresh.yaml）。先に (D) でイメージをビルド・push しておく
+# ジョブは残っている（イメージが無いだけ）。先に (D) でイメージをビルド・push し、`gcloud run jobs update nar-refresh --image=$IMG ...` で差し替える。
+# 消えていた場合は次で作る（設定は gcp_snapshot_2026-10-25/job_nar-refresh.yaml）
 IMG=asia-northeast1-docker.pkg.dev/$P/nar-ops/nar-ops:vYYYY.MM.DD
 gcloud run jobs create nar-refresh --project=$P --region=$R --image=$IMG \
   --command=python --args=-m,narops.refresh --cpu=4 --memory=16Gi --task-timeout=3600s --max-retries=1 \
