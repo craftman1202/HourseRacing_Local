@@ -1,0 +1,67 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress-status: all
+    run.googleapis.com/maxScale: '20'
+    run.googleapis.com/urls: '["https://nar-ops-110558416539.asia-northeast1.run.app","https://nar-ops-bwl3vrgzdq-an.a.run.app"]'
+  labels:
+    cloud.googleapis.com/location: asia-northeast1
+  name: nar-ops
+  namespace: '110558416539'
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '3'
+        run.googleapis.com/client-name: gcloud
+        run.googleapis.com/client-version: 572.0.0
+        run.googleapis.com/cpu-throttling: 'true'
+        run.googleapis.com/startup-cpu-boost: 'true'
+      labels:
+        client.knative.dev/nonce: cplpcchhsu
+        run.googleapis.com/startupProbeType: Default
+    spec:
+      containerConcurrency: 80
+      containers:
+      - env:
+        - name: NAROPS_PROJECT
+          value: sample-335613
+        - name: NAROPS_DATASET
+          value: nar_ops
+        - name: NAROPS_MODEL_BUCKET
+          value: nar-model-sample-335613
+        - name: NAROPS_RAW_BUCKET
+          value: nar-raw-sample-335613
+        - name: NAROPS_ROLE
+          value: ops
+        - name: NAROPS_SERVICE_URL
+          value: https://nar-ops-bwl3vrgzdq-an.a.run.app
+        - name: MODEL_PROVENANCE
+          value: real
+        - name: NAROPS_MODE
+          value: paper
+        - name: NAROPS_INGEST_STORE
+          value: gs://nar-raw-sample-335613/ingest-store
+        - name: NAROPS_ORDER_BUCKET
+          value: nar-raw-sample-335613
+        image: asia-northeast1-docker.pkg.dev/sample-335613/nar-ops/nar-ops:v2026.10.21-notify-all
+        ports:
+        - containerPort: 8080
+          name: http1
+        resources:
+          limits:
+            cpu: '2'
+            memory: 4Gi
+        startupProbe:
+          failureThreshold: 1
+          periodSeconds: 240
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 240
+      serviceAccountName: nar-ops@sample-335613.iam.gserviceaccount.com
+      timeoutSeconds: 300
+  traffic:
+  - latestRevision: true
+    percent: 100

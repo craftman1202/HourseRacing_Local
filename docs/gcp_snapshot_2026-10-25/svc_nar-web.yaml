@@ -1,0 +1,73 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress-status: all
+    run.googleapis.com/invoker-iam-disabled: 'true'
+    run.googleapis.com/maxScale: '20'
+    run.googleapis.com/urls: '["https://nar-web-110558416539.asia-northeast1.run.app","https://nar-web-bwl3vrgzdq-an.a.run.app"]'
+  labels:
+    cloud.googleapis.com/location: asia-northeast1
+  name: nar-web
+  namespace: '110558416539'
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '5'
+        run.googleapis.com/client-name: gcloud
+        run.googleapis.com/client-version: 572.0.0
+        run.googleapis.com/cpu-throttling: 'true'
+        run.googleapis.com/startup-cpu-boost: 'true'
+      labels:
+        client.knative.dev/nonce: ikjjhdfqpj
+        run.googleapis.com/startupProbeType: Default
+    spec:
+      containerConcurrency: 80
+      containers:
+      - env:
+        - name: NAR_API_URL
+          value: https://nar-api-110558416539.asia-northeast1.run.app
+        - name: NAR_ADMIN_EMAILS
+          value: integral.sekibundx@gmail.com
+        - name: NODE_ENV
+          value: production
+        - name: AUTH_TRUST_HOST
+          value: 'true'
+        - name: AUTH_URL
+          value: https://nar-web-bwl3vrgzdq-an.a.run.app
+        - name: AUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: AUTH_SECRET
+        - name: AUTH_GOOGLE_ID
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: AUTH_GOOGLE_ID
+        - name: AUTH_GOOGLE_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: AUTH_GOOGLE_SECRET
+        image: asia-northeast1-docker.pkg.dev/sample-335613/nar-web/nar-web:v2026.08.30-authfix2
+        ports:
+        - containerPort: 8080
+          name: http1
+        resources:
+          limits:
+            cpu: '1'
+            memory: 512Mi
+        startupProbe:
+          failureThreshold: 1
+          periodSeconds: 240
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 240
+      serviceAccountName: nar-web@sample-335613.iam.gserviceaccount.com
+      timeoutSeconds: 300
+  traffic:
+  - latestRevision: true
+    percent: 100

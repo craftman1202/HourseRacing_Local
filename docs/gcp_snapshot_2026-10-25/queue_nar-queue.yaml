@@ -1,0 +1,11 @@
+name: projects/sample-335613/locations/asia-northeast1/queues/nar-queue
+rateLimits:
+  maxBurstSize: 100
+  maxConcurrentDispatches: 1000
+  maxDispatchesPerSecond: 500.0
+retryConfig:
+  maxAttempts: 3
+  maxBackoff: 270s
+  maxDoublings: 16
+  minBackoff: 30s
+state: RUNNING

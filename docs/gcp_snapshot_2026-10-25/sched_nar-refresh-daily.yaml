@@ -1,0 +1,22 @@
+attemptDeadline: 180s
+httpTarget:
+  headers:
+    User-Agent: Google-Cloud-Scheduler
+  httpMethod: POST
+  oauthToken:
+    scope: https://www.googleapis.com/auth/cloud-platform
+    serviceAccountEmail: nar-ops@sample-335613.iam.gserviceaccount.com
+  uri: https://asia-northeast1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/sample-335613/jobs/nar-refresh:run
+lastAttemptTime: '2026-10-24T20:00:06.301258Z'
+name: projects/sample-335613/locations/asia-northeast1/jobs/nar-refresh-daily
+retryConfig:
+  maxBackoffDuration: 3600s
+  maxDoublings: 5
+  maxRetryDuration: 0s
+  minBackoffDuration: 5s
+schedule: 0 5 * * *
+scheduleTime: '2026-10-25T20:00:04.405951Z'
+state: ENABLED
+status: {}
+timeZone: Asia/Tokyo
+userUpdateTime: '2026-08-29T08:07:37.577467Z'

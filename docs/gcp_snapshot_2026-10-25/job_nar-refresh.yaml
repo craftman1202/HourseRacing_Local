@@ -1,0 +1,49 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  annotations:
+    run.googleapis.com/creator: integral.sekibundx@gmail.com
+    run.googleapis.com/lastModifier: integral.sekibundx@gmail.com
+  labels:
+    cloud.googleapis.com/location: asia-northeast1
+    run.googleapis.com/lastUpdatedTime: '2026-10-22T02:38:36.679502Z'
+  name: nar-refresh
+  namespace: '110558416539'
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/client-name: gcloud
+        run.googleapis.com/client-version: 572.0.0
+        run.googleapis.com/execution-environment: gen2
+      labels:
+        client.knative.dev/nonce: fus_wuf_xom
+    spec:
+      taskCount: 1
+      template:
+        spec:
+          containers:
+          - args:
+            - -m
+            - narops.refresh
+            command:
+            - python
+            env:
+            - name: NAROPS_INGEST_STORE
+              value: gs://nar-raw-sample-335613/ingest-store
+            - name: NAROPS_BACKEND
+              value: bigquery
+            - name: NAROPS_MODE
+              value: paper
+            - name: MODEL_PROVENANCE
+              value: real
+            - name: NAROPS_PROJECT
+              value: sample-335613
+            image: asia-northeast1-docker.pkg.dev/sample-335613/nar-ops/nar-ops:v2026.10.22-refresh-fix
+            resources:
+              limits:
+                cpu: '4'
+                memory: 16Gi
+          maxRetries: 1
+          serviceAccountName: nar-ops@sample-335613.iam.gserviceaccount.com
+          timeoutSeconds: '3600'

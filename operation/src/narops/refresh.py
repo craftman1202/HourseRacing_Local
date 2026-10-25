@@ -540,8 +540,10 @@ def main() -> int:
     alert_sender = _build_alert_sender(cfg)
 
     try:
-        summary = daily_refresh(wh=wh, clock=clock, workdir=workdir,
-                                persist_root=persist_root)
+        # 長く止めたあとの再開では、止めていた日数ぶんを遡って確定層へ入れる必要がある
+        # （既定は直近 7 日。docs/GcpSuspend_2026-10-25.md）
+        summary = daily_refresh(wh=wh, clock=clock, workdir=workdir, persist_root=persist_root,
+                                since_days=int(os.environ.get("NAROPS_REFRESH_SINCE_DAYS", "7")))
     except Exception as exc:  # noqa: BLE001
         msg = f"日次データ更新に失敗しました（fail-closed のまま）: {exc}"
         log.error(msg)
